@@ -13,21 +13,21 @@ onMounted(() => {
     classList.value = [
       {
         id: 1,
-        name: '高一(1)班',
+        name: '物联网(1)班',
         year: '2023',
         count: 45,
         createTime: '2023-09-01'
       },
       {
         id: 2,
-        name: '高一(2)班',
+        name: '物联网(2)班',
         year: '2023',
         count: 48,
         createTime: '2023-09-01'
       },
       {
         id: 3,
-        name: '高二(1)班',
+        name: '计算机(1)班',
         year: '2022',
         count: 46,
         createTime: '2022-09-01'

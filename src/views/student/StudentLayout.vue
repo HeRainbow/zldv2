@@ -6,6 +6,7 @@ const router = useRouter()
 const activeIndex = ref('/student/exam-list')
 
 const handleSelect = (key) => {
+  activeIndex.value = key
   router.push(key)
 }
 

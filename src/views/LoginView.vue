@@ -26,8 +26,10 @@ const handleLogin = () => {
 </script>
 
 <template>
-  <div class="login-container">
-    <div class="login-box">
+
+  <div class="login-container"  >
+  
+    <div class="login-box" >
       <h1 class="system-title">答题系统</h1>
       
       <el-tabs v-model="activeTab" class="login-tabs">
@@ -49,21 +51,23 @@ const handleLogin = () => {
         </el-form-item>
       </el-form>
     </div>
+
   </div>
 </template>
 
 <style scoped>
 .login-container {
-  width: 100%;
+  width: 1200px;
   height: 100vh;
+  padding-right: 50px;
   display: flex;
-  justify-content: center;
+  justify-content: flex-end;
   align-items: center;
   background-color: #f5f7fa;
 }
 
 .login-box {
-  width: 400px;
+  width: 480px;
   padding: 30px;
   background-color: white;
   border-radius: 8px;
