@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
@@ -95,44 +95,148 @@ const fetchClassList = async () => {
   }
 }
 
-// 获取选择题列表
-const fetchChoiceQuestions = async () => {
+// 获取题目列表
+const fetchQuestions = async () => {
   loadingQuestions.value = true
   
   try {
-    const res = await request({
-      url: '/op/list/page',
-      method: 'post',
-      data: {
-        current: currentPage.value,
-        pageSize: pageSize.value,
-        sortField: "",
-        sortOrder: ""
-      }
-    })
+    // 根据选择的题型获取不同题目
+    let res
+    let formattedQuestions = []
     
-    if (res.code === 0 && res.data) {
-      // 将后端返回的选择题数据格式化为组件使用的格式
-      const formattedQuestions = (res.data.records || []).map(item => {
-        return {
-          id: item.id,
-          type: 'single', // 默认为单选题
-          content: item.title,
-          options: [
-            { label: 'A', content: item.optionA },
-            { label: 'B', content: item.optionB },
-            { label: 'C', content: item.optionC },
-            { label: 'D', content: item.optionD }
-          ],
-          answer: item.answer,
-          points: 5 // 默认分值
+    // 获取单选题
+    if (selectedType.value === 'all' || selectedType.value === 'single') {
+      res = await request({
+        url: '/op/list/page',
+        method: 'post',
+        data: {
+          current: currentPage.value,
+          pageSize: pageSize.value,
+          sortField: "",
+          sortOrder: ""
         }
       })
       
-      questions.value = formattedQuestions
-      totalQuestions.value = parseInt(res.data.total) || 0
-    } else {
-      ElMessage.error(res.message || '获取题目列表失败')
+      if (res.code === 0 && res.data) {
+        // 将后端返回的选择题数据格式化为组件使用的格式
+        const singleQuestions = (res.data.records || []).map(item => {
+          return {
+            id: item.id,
+            type: 'single',
+            content: item.title,
+            options: [
+              { label: 'A', content: item.optionA },
+              { label: 'B', content: item.optionB },
+              { label: 'C', content: item.optionC },
+              { label: 'D', content: item.optionD }
+            ],
+            answer: item.answer,
+            points: 5 // 默认分值
+          }
+        })
+        
+        formattedQuestions = [...formattedQuestions, ...singleQuestions]
+        totalQuestions.value = parseInt(res.data.total) || 0
+      }
+    }
+    
+    // 获取填空题
+    if (selectedType.value === 'all' || selectedType.value === 'fill') {
+      res = await request({
+        url: '/blank/list/page',
+        method: 'post',
+        data: {
+          current: currentPage.value,
+          pageSize: pageSize.value
+        }
+      })
+      
+      if (res.code === 0 && res.data) {
+        const fillQuestions = (res.data.records || []).map(item => {
+          return {
+            id: item.id,
+            type: 'fill',
+            content: item.title,
+            answer: item.answer,
+            points: 5 // 默认分值
+          }
+        })
+        
+        formattedQuestions = [...formattedQuestions, ...fillQuestions]
+        if (selectedType.value === 'fill') {
+          totalQuestions.value = parseInt(res.data.total) || 0
+        }
+      }
+    }
+    
+    // 获取判断题
+    if (selectedType.value === 'all' || selectedType.value === 'judge') {
+      res = await request({
+        url: '/judge/list/page',
+        method: 'post',
+        data: {
+          current: currentPage.value,
+          pageSize: pageSize.value
+        }
+      })
+      
+      if (res.code === 0 && res.data) {
+        const judgeQuestions = (res.data.records || []).map(item => {
+          return {
+            id: item.id,
+            type: 'judge',
+            content: item.title,
+            // 判断题答案：1表示"正确"，0表示"错误"
+            answer: item.answer === 1 ? '正确' : '错误',
+            answerValue: item.answer,
+            points: 5 // 默认分值
+          }
+        })
+        
+        formattedQuestions = [...formattedQuestions, ...judgeQuestions]
+        if (selectedType.value === 'judge') {
+          totalQuestions.value = parseInt(res.data.total) || 0
+        }
+      }
+    }
+    
+    // 获取编程题
+    if (selectedType.value === 'all' || selectedType.value === 'program') {
+      res = await request({
+        url: '/program/list/page',
+        method: 'post',
+        data: {
+          current: currentPage.value,
+          pageSize: pageSize.value
+        }
+      })
+      
+      if (res.code === 0 && res.data) {
+        const programQuestions = (res.data.records || []).map(item => {
+          return {
+            id: item.id,
+            type: 'program',
+            content: item.title,
+            answer: item.answer,
+            defaultProgram: item.defaultProgram,
+            judgeCase: item.judgeCase,
+            judgeConfig: item.judgeConfig,
+            points: 10 // 编程题默认分值更高
+          }
+        })
+        
+        formattedQuestions = [...formattedQuestions, ...programQuestions]
+        if (selectedType.value === 'program') {
+          totalQuestions.value = parseInt(res.data.total) || 0
+        }
+      }
+    }
+    
+    questions.value = formattedQuestions
+    
+    // 如果是"全部"类型，总数可能不准确，但这里仅用于分页展示
+    if (selectedType.value === 'all') {
+      totalQuestions.value = formattedQuestions.length
     }
   } catch (error) {
     console.error('获取题目列表出错', error)
@@ -145,14 +249,14 @@ const fetchChoiceQuestions = async () => {
 // 页码变化
 const handleQuestionPageChange = (page) => {
   currentPage.value = page
-  fetchChoiceQuestions()
+  fetchQuestions()
 }
 
 // 每页条数变化
 const handleQuestionSizeChange = (size) => {
   pageSize.value = size
   currentPage.value = 1
-  fetchChoiceQuestions()
+  fetchQuestions()
 }
 
 onMounted(() => {
@@ -160,21 +264,23 @@ onMounted(() => {
   fetchClassList()
   
   // 获取题目列表
-  fetchChoiceQuestions()
+  fetchQuestions()
 })
 
 const typeFilters = [
   { value: 'all', label: '全部类型' },
   { value: 'single', label: '单选题' },
-  { value: 'multiple', label: '多选题' },
-  { value: 'text', label: '简答题' }
+  { value: 'fill', label: '填空题' },
+  { value: 'judge', label: '判断题' },
+  { value: 'program', label: '编程题' }
 ]
 
 const getTypeText = (type) => {
   const typeMap = {
     'single': '单选题',
-    'multiple': '多选题',
-    'text': '简答题'
+    'fill': '填空题',
+    'judge': '判断题',
+    'program': '编程题'
   }
   return typeMap[type] || type
 }
@@ -207,7 +313,11 @@ const handleShowQuestionDialog = () => {
 }
 
 const handleAddQuestion = (question) => {
-  selectedQuestions.value.push(question)
+  selectedQuestions.value.push({
+    ...question,
+    // 为不同题型设置不同的默认分值
+    points: question.type === 'program' ? 10 : 5
+  })
   updateTotalPoints()
 }
 
@@ -268,6 +378,25 @@ const handleSubmit = () => {
 const handleCancel = () => {
   router.push('/teacher/exam-list')
 }
+
+// 监听题型变化，重新加载题目
+watch(selectedType, () => {
+  currentPage.value = 1 // 重置页码
+  fetchQuestions()
+})
+
+// 监听搜索文本变化
+watch(searchText, () => {
+  // 防抖：可以在实际应用中添加防抖逻辑
+  if (selectedType.value === 'all') {
+    // 如果是全部，直接过滤本地数据
+    // 已经在计算属性filteredQuestions中实现
+  } else {
+    // 如果是特定类型，可以重新请求后端
+    currentPage.value = 1
+    fetchQuestions()
+  }
+})
 </script>
 
 <template>
@@ -340,7 +469,7 @@ const handleCancel = () => {
         <div class="question-section">
           <div class="section-header">
             <div class="section-title">
-              已选择 {{ selectedQuestions.length }} 道题目 / 总分值: {{ calculateTotalPoints }} 分
+              已选择 {{ selectedQuestions.length }} 道题目 
             </div>
             <el-button type="primary" @click="handleShowQuestionDialog">添加题目</el-button>
           </div>
@@ -358,7 +487,6 @@ const handleCancel = () => {
                   >
                     {{ getTypeText(question.type) }}
                   </el-tag>
-                  <span class="question-points">{{ question.points }}分</span>
                 </div>
                 <div class="question-actions">
                   <el-button 
@@ -370,23 +498,47 @@ const handleCancel = () => {
               </div>
               <div class="question-content">{{ question.content }}</div>
               
-              <!-- 显示题目选项 -->
-              <div v-if="question.type === 'single' || question.type === 'multiple'" class="question-options">
+              <!-- 显示题目选项（单选题） -->
+              <div v-if="question.type === 'single'" class="question-options">
                 <div v-for="option in question.options" :key="option.label" class="option-item">
                   <span class="option-label">{{ option.label }}</span>
                   <span class="option-content">{{ option.content }}</span>
                 </div>
                 <div class="question-answer">
                   <strong>正确答案：</strong>
-                  <span v-if="question.type === 'single'">{{ question.answer }}</span>
-                  <span v-else>{{ question.answers ? question.answers.join(', ') : '' }}</span>
+                  <span>{{ question.answer }}</span>
                 </div>
               </div>
               
-              <!-- 显示参考答案(简答题) -->
-              <div v-if="question.type === 'text'" class="question-reference">
-                <strong>参考答案：</strong>
-                <div class="reference-content">{{ question.referenceAnswer }}</div>
+              <!-- 显示填空题答案 -->
+              <div v-if="question.type === 'fill'" class="question-answer">
+                <strong>填空答案：</strong>
+                <span>{{ question.answer }}</span>
+              </div>
+              
+              <!-- 显示判断题答案 -->
+              <div v-if="question.type === 'judge'" class="question-answer">
+                <strong>正确答案：</strong>
+                <span>{{ question.answer }}</span>
+              </div>
+              
+              <!-- 显示编程题信息 -->
+              <div v-if="question.type === 'program'" class="question-programming">
+                <div v-if="question.defaultProgram" class="question-default-program">
+                  <strong>初始代码：</strong>
+                  <pre>{{ question.defaultProgram }}</pre>
+                </div>
+                <div class="question-answer">
+                  <strong>参考答案：</strong>
+                  <pre>{{ question.answer }}</pre>
+                </div>
+                <div v-if="question.judgeCase" class="question-testcases">
+                  <strong>测试用例：</strong>
+                  <div v-for="(testCase, idx) in (typeof question.judgeCase === 'string' ? JSON.parse(question.judgeCase) : question.judgeCase)" :key="idx" class="testcase-item">
+                    <div>输入: {{ testCase.input }}</div>
+                    <div>输出: {{ testCase.output }}</div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -429,20 +581,60 @@ const handleCancel = () => {
           <div v-for="question in filteredQuestions" :key="question.id" class="dialog-question-item">
             <div class="dialog-question-header">
               <div class="dialog-question-type">
-                <el-tag :type="question.type === 'single' ? 'primary' : (question.type === 'multiple' ? 'success' : 'warning')">
+                <el-tag :type="
+                  question.type === 'single' ? 'primary' : 
+                  question.type === 'fill' ? 'success' : 
+                  question.type === 'judge' ? 'warning' : 
+                  question.type === 'program' ? 'danger' : 'info'
+                ">
                   {{ getTypeText(question.type) }}
                 </el-tag>
-                <span class="dialog-question-points">{{ question.points }}分</span>
               </div>
               <el-button type="primary" size="small" @click="handleAddQuestion(question)">添加</el-button>
             </div>
             
             <div class="dialog-question-content">{{ question.content }}</div>
             
-            <div v-if="question.type === 'single' || question.type === 'multiple'" class="dialog-question-options">
+            <!-- 单选题选项 -->
+            <div v-if="question.type === 'single'" class="dialog-question-options">
               <div v-for="option in question.options" :key="option.label" class="dialog-option-item">
                 <span class="dialog-option-label">{{ option.label }}</span>
                 <span class="dialog-option-content">{{ option.content }}</span>
+              </div>
+              <div class="dialog-question-answer">
+                <strong>正确答案：</strong>
+                <span>{{ question.answer }}</span>
+              </div>
+            </div>
+            
+            <!-- 填空题答案 -->
+            <div v-if="question.type === 'fill'" class="dialog-question-answer">
+              <strong>填空答案：</strong>
+              <span>{{ question.answer }}</span>
+            </div>
+            
+            <!-- 判断题答案 -->
+            <div v-if="question.type === 'judge'" class="dialog-question-answer">
+              <strong>正确答案：</strong>
+              <span>{{ question.answer }}</span>
+            </div>
+            
+            <!-- 编程题信息 -->
+            <div v-if="question.type === 'program'" class="dialog-question-programming">
+              <div v-if="question.defaultProgram" class="dialog-question-default-program">
+                <strong>初始代码：</strong>
+                <pre>{{ question.defaultProgram }}</pre>
+              </div>
+              <div class="dialog-question-answer">
+                <strong>参考答案(部分)：</strong>
+                <pre>{{ question.answer ? question.answer.substring(0, 100) + (question.answer.length > 100 ? '...' : '') : '' }}</pre>
+              </div>
+              <div v-if="question.judgeCase" class="dialog-question-testcases">
+                <strong>测试用例：</strong>
+                <div v-for="(testCase, idx) in (typeof question.judgeCase === 'string' ? JSON.parse(question.judgeCase) : question.judgeCase)" :key="idx" class="dialog-testcase-item">
+                  <div>输入: {{ testCase.input }}</div>
+                  <div>输出: {{ testCase.output }}</div>
+                </div>
               </div>
             </div>
           </div>
@@ -660,5 +852,47 @@ const handleCancel = () => {
   font-size: 14px;
   color: #606266;
   line-height: 1.5;
+}
+
+.question-programming {
+  margin-top: 10px;
+  margin-left: 20px;
+  border-left: 3px solid #ebeef5;
+  padding-left: 10px;
+}
+
+.question-default-program {
+  margin-bottom: 10px;
+}
+
+.question-testcases {
+  margin-top: 10px;
+}
+
+.testcase-item {
+  margin-bottom: 5px;
+}
+
+.dialog-question-programming {
+  margin-top: 10px;
+  margin-left: 20px;
+  border-left: 3px solid #ebeef5;
+  padding-left: 10px;
+}
+
+.dialog-question-answer {
+  margin-top: 5px;
+  color: #67c23a;
+}
+
+.dialog-question-default-program,
+.dialog-question-testcases {
+  margin-top: 10px;
+}
+
+.dialog-testcase-item {
+  margin-bottom: 5px;
+  padding-left: 8px;
+  border-left: 2px solid #ebeef5;
 }
 </style> 
