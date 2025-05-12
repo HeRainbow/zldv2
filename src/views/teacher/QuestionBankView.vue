@@ -1,93 +1,162 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import request from '@/utils/request'
 
 const router = useRouter()
 const loading = ref(true)
 const searchText = ref('')
 const selectedType = ref('all')
-
 const questions = ref([])
+const total = ref(0)
+const currentPage = ref(1)
+const pageSize = ref(10)
+
+// 获取题目列表
+const fetchQuestions = async () => {
+  loading.value = true
+  
+  try {
+    // 构建请求参数
+    const params = {
+      current: currentPage.value,
+      pageSize: pageSize.value,
+      sortField: "",
+      sortOrder: ""
+    }
+    
+    // 如果有搜索关键词，添加到请求参数
+    if (searchText.value) {
+      params.title = searchText.value
+    }
+    
+    // 如果选择了特定类型，添加到请求参数
+    if (selectedType.value !== 'all') {
+      params.type = selectedType.value
+    }
+    
+    const res = await request({
+      url: '/op/list/page',
+      method: 'post',
+      data: params
+    })
+    
+    console.log('API返回的完整数据:', res)
+    
+    if (res.code === 0 && res.data) {
+      // 将后端返回的题目数据格式化为组件使用的格式
+      const formattedQuestions = (res.data.records || []).map(item => {
+        // 基本题目信息
+        const question = {
+          id: item.id,
+          type: item.type || 'single', // 使用后端返回的题型，默认为单选题
+          content: item.title,
+          createTime: item.createTime ? new Date(item.createTime).toLocaleString() : new Date().toLocaleString()
+        }
+        
+        // 根据题型添加特定字段
+        if (item.type === 'single' || !item.type) {
+          // 默认为单选题类型
+          console.log('单选题数据:', item)
+          
+          // 组装选项数据
+          const options = []
+          if (item.optionA) {
+            options.push({ label: 'A', content: item.optionA })
+          }
+          if (item.optionB) {
+            options.push({ label: 'B', content: item.optionB })
+          }
+          if (item.optionC) {
+            options.push({ label: 'C', content: item.optionC })
+          }
+          if (item.optionD) {
+            options.push({ label: 'D', content: item.optionD })
+          }
+          
+          Object.assign(question, {
+            type: 'single', // 确保类型为单选题
+            options: options,
+            answer: item.answer || ''
+          })
+          
+          console.log('格式化后的单选题数据:', question)
+        } else if (item.type === 'fill') {
+          Object.assign(question, {
+            fillAnswer: item.fillAnswer || ''
+          })
+        } else if (item.type === 'text') {
+          Object.assign(question, {
+            referenceAnswer: item.referenceAnswer || ''
+          })
+        } else if (item.type === 'programming') {
+          Object.assign(question, {
+            programmingAnswer: item.programmingAnswer || '',
+            testCases: item.testCases || ''
+          })
+        }
+        
+        return question
+      })
+      
+      questions.value = formattedQuestions
+      total.value = parseInt(res.data.total) || 0
+    } else {
+      ElMessage.error(res.message || '获取题目列表失败')
+    }
+  } catch (error) {
+    console.error('获取题目列表出错', error)
+    ElMessage.error('获取题目列表失败，请稍后重试')
+  } finally {
+    loading.value = false
+  }
+}
+
+// 监听搜索条件变化，重新加载数据
+watch([searchText, selectedType], () => {
+  currentPage.value = 1 // 重置到第一页
+  fetchQuestions()
+})
+
+// 页码变化
+const handlePageChange = (page) => {
+  currentPage.value = page
+  fetchQuestions()
+}
+
+// 每页条数变化
+const handleSizeChange = (size) => {
+  pageSize.value = size
+  currentPage.value = 1
+  fetchQuestions()
+}
 
 onMounted(() => {
-  // 模拟获取题目列表
-  setTimeout(() => {
-    questions.value = [
-      {
-        id: 1,
-        type: 'single',
-        content: '下列哪个不是JavaScript的数据类型？',
-        options: [
-          { label: 'A', content: 'String' },
-          { label: 'B', content: 'Number' },
-          { label: 'C', content: 'Boolean' },
-          { label: 'D', content: 'Char' }
-        ],
-        answer: 'D',
-        points: 5,
-        createTime: '2023-06-15'
-      },
-      {
-        id: 2,
-        type: 'multiple',
-        content: '以下哪些是Vue的生命周期钩子？',
-        options: [
-          { label: 'A', content: 'mounted' },
-          { label: 'B', content: 'created' },
-          { label: 'C', content: 'rendering' },
-          { label: 'D', content: 'destroyed' }
-        ],
-        answers: ['A', 'B', 'D'],
-        points: 5,
-        createTime: '2023-06-16'
-      },
-      {
-        id: 3,
-        type: 'text',
-        content: '简述Vue组合式API的优势',
-        referenceAnswer: 'Vue组合式API的优势包括更好的代码组织、逻辑复用、类型推导支持以及更小的生产包体积。',
-        points: 10,
-        createTime: '2023-06-18'
-      }
-    ]
-    loading.value = false
-  }, 1000)
+  fetchQuestions()
 })
 
 const typeFilters = [
   { value: 'all', label: '全部类型' },
   { value: 'single', label: '单选题' },
-  { value: 'multiple', label: '多选题' },
-  { value: 'text', label: '简答题' }
+  { value: 'fill', label: '填空题' },
+  { value: 'text', label: '简答题' },
+  { value: 'programming', label: '编程题' }
 ]
 
 const getTypeText = (type) => {
   const typeMap = {
     'single': '单选题',
-    'multiple': '多选题',
-    'text': '简答题'
+    'fill': '填空题',
+    'text': '简答题',
+    'programming': '编程题'
   }
-  return typeMap[type] || type
+  return typeMap[type] || '单选题'
 }
 
+// 已经使用服务器端分页和筛选，所以直接返回题目列表
 const filteredQuestions = computed(() => {
-  let result = questions.value
-  
-  // 按类型筛选
-  if (selectedType.value !== 'all') {
-    result = result.filter(q => q.type === selectedType.value)
-  }
-  
-  // 按关键词搜索
-  if (searchText.value) {
-    const keyword = searchText.value.toLowerCase()
-    result = result.filter(q => {
-      return q.content.toLowerCase().includes(keyword)
-    })
-  }
-  
-  return result
+  return questions.value
 })
 
 const handleCreateQuestion = () => {
@@ -95,8 +164,11 @@ const handleCreateQuestion = () => {
 }
 
 const handleEditQuestion = (question) => {
-  // 实际应用中应该跳转到编辑页面，可以传入题目ID
-  console.log('编辑题目', question)
+  // 跳转到编辑页面，传入题目ID
+  router.push({
+    path: '/teacher/edit-question',
+    query: { id: question.id }
+  })
 }
 
 const handleDeleteQuestion = (question) => {
@@ -108,14 +180,35 @@ const handleDeleteQuestion = (question) => {
       cancelButtonText: '取消',
       type: 'warning'
     }
-  ).then(() => {
-    // 模拟删除
-    const index = questions.value.findIndex(q => q.id === question.id)
-    if (index !== -1) {
-      questions.value.splice(index, 1)
+  ).then(async () => {
+    try {
+      const res = await request({
+        url: '/op/delete',
+        method: 'post',
+        data: {
+          id: question.id
+        }
+      })
+      
+      if (res.code === 0) {
+        ElMessage({
+          type: 'success',
+          message: '删除成功'
+        })
+        
+        // 重新加载题目列表
+        fetchQuestions()
+      } else {
+        ElMessage({
+          type: 'error',
+          message: res.message || '删除失败'
+        })
+      }
+    } catch (error) {
+      console.error('删除题目失败', error)
       ElMessage({
-        type: 'success',
-        message: '删除成功'
+        type: 'error',
+        message: '删除失败: ' + (error.message || '未知错误')
       })
     }
   }).catch(() => {
@@ -150,7 +243,7 @@ const handleDeleteQuestion = (question) => {
           ></el-input>
         </div>
         <div class="stats-section">
-          总计 {{ filteredQuestions.length }} 题
+          总计 {{ total }} 题
         </div>
       </div>
       
@@ -158,10 +251,13 @@ const handleDeleteQuestion = (question) => {
         <div v-for="question in filteredQuestions" :key="question.id" class="question-item">
           <div class="question-header">
             <div class="question-type">
-              <el-tag :type="question.type === 'single' ? 'primary' : (question.type === 'multiple' ? 'success' : 'warning')">
+              <el-tag :type="
+                question.type === 'single' ? 'primary' : 
+                (question.type === 'fill' ? 'success' : 
+                (question.type === 'text' ? 'warning' : 'danger'))
+              ">
                 {{ getTypeText(question.type) }}
               </el-tag>
-              <span class="question-points">{{ question.points }}分</span>
             </div>
             <div class="question-actions">
               <el-button type="primary" size="small" @click="handleEditQuestion(question)">编辑</el-button>
@@ -171,23 +267,42 @@ const handleDeleteQuestion = (question) => {
           
           <div class="question-content">{{ question.content }}</div>
           
-          <div v-if="question.type === 'single' || question.type === 'multiple'" class="question-options">
+          <!-- 单选题选项 -->
+          <div v-if="question.type === 'single' && question.options && question.options.length > 0" class="question-options">
             <div v-for="option in question.options" :key="option.label" class="option-item">
               <span 
                 :class="{ 
                   'option-label': true, 
-                  'correct-answer': question.type === 'single' ? question.answer === option.label : (question.answers && question.answers.includes(option.label))
+                  'correct-answer': question.answer === option.label
                 }"
               >
                 {{ option.label }}
               </span>
               <span class="option-content">{{ option.content }}</span>
             </div>
+            <div class="question-answer">
+              <strong>正确答案：</strong> {{ question.answer }}
+            </div>
           </div>
           
+          <!-- 填空题答案 -->
+          <div v-if="question.type === 'fill'" class="question-reference">
+            <div class="reference-label">正确答案：</div>
+            <div class="reference-content">{{ question.fillAnswer }}</div>
+          </div>
+          
+          <!-- 简答题参考答案 -->
           <div v-if="question.type === 'text'" class="question-reference">
             <div class="reference-label">参考答案：</div>
             <div class="reference-content">{{ question.referenceAnswer }}</div>
+          </div>
+          
+          <!-- 编程题答案 -->
+          <div v-if="question.type === 'programming'" class="question-reference">
+            <div class="reference-label">参考代码：</div>
+            <div class="reference-content code-block">{{ question.programmingAnswer }}</div>
+            <div class="reference-label test-cases-label">测试用例：</div>
+            <div class="reference-content test-cases">{{ question.testCases }}</div>
           </div>
           
           <div class="question-footer">
@@ -196,6 +311,19 @@ const handleDeleteQuestion = (question) => {
         </div>
         
         <el-empty v-if="filteredQuestions.length === 0 && !loading" description="暂无符合条件的题目"></el-empty>
+      </div>
+      
+      <!-- 分页控件 -->
+      <div class="pagination" v-if="total > 0">
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :page-sizes="[5, 10, 20, 50]"
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="total"
+          @size-change="handleSizeChange"
+          @current-change="handlePageChange"
+        />
       </div>
     </el-card>
   </div>
@@ -315,10 +443,41 @@ const handleDeleteQuestion = (question) => {
   white-space: pre-wrap;
 }
 
+.code-block {
+  font-family: monospace;
+  background-color: #f1f1f1;
+  padding: 10px;
+  border-radius: 3px;
+  margin-bottom: 10px;
+}
+
+.test-cases-label {
+  margin-top: 10px;
+}
+
+.test-cases {
+  font-family: monospace;
+}
+
+.question-answer {
+  margin-top: 10px;
+  padding: 5px 10px;
+  background-color: #f0f9eb;
+  border-radius: 4px;
+  color: #67C23A;
+  font-weight: bold;
+}
+
 .question-footer {
   display: flex;
   justify-content: flex-end;
   color: #909399;
   font-size: 12px;
+}
+
+.pagination {
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
 }
 </style> 

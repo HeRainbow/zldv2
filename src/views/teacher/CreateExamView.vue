@@ -2,6 +2,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import request from '@/utils/request'
 
 const router = useRouter()
 const loading = ref(false)
@@ -14,6 +15,9 @@ const searchText = ref('')
 const selectedType = ref('all')
 const loadingClasses = ref(true)
 const loadingQuestions = ref(true)
+const currentPage = ref(1)
+const pageSize = ref(10)
+const totalQuestions = ref(0)
 
 const examForm = reactive({
   title: '',
@@ -42,75 +46,121 @@ const rules = {
   ]
 }
 
+// 获取用户信息
+const getUserInfo = () => {
+  const userInfoStr = localStorage.getItem('userInfo')
+  if (!userInfoStr) return null
+  try {
+    return JSON.parse(userInfoStr)
+  } catch (error) {
+    console.error('解析用户信息失败', error)
+    return null
+  }
+}
+
+// 获取班级列表
+const fetchClassList = async () => {
+  loadingClasses.value = true
+  const userInfo = getUserInfo()
+  
+  if (!userInfo || !userInfo.id) {
+    ElMessage.error('获取用户信息失败，请重新登录')
+    router.push('/login')
+    return
+  }
+  
+  try {
+    const res = await request({
+      url: '/class/listClass',
+      method: 'post',
+      data: {
+        current: 1,
+        pageSize: 100, // 获取足够多的班级
+        sortField: "",
+        sortOrder: "",
+        teacherId: userInfo.id
+      }
+    })
+    
+    if (res.code === 0 && res.data) {
+      classList.value = res.data.records || []
+    } else {
+      ElMessage.error(res.message || '获取班级列表失败')
+    }
+  } catch (error) {
+    console.error('获取班级列表出错', error)
+    ElMessage.error('获取班级列表失败，请稍后重试')
+  } finally {
+    loadingClasses.value = false
+  }
+}
+
+// 获取选择题列表
+const fetchChoiceQuestions = async () => {
+  loadingQuestions.value = true
+  
+  try {
+    const res = await request({
+      url: '/op/list/page',
+      method: 'post',
+      data: {
+        current: currentPage.value,
+        pageSize: pageSize.value,
+        sortField: "",
+        sortOrder: ""
+      }
+    })
+    
+    if (res.code === 0 && res.data) {
+      // 将后端返回的选择题数据格式化为组件使用的格式
+      const formattedQuestions = (res.data.records || []).map(item => {
+        return {
+          id: item.id,
+          type: 'single', // 默认为单选题
+          content: item.title,
+          options: [
+            { label: 'A', content: item.optionA },
+            { label: 'B', content: item.optionB },
+            { label: 'C', content: item.optionC },
+            { label: 'D', content: item.optionD }
+          ],
+          answer: item.answer,
+          points: 5 // 默认分值
+        }
+      })
+      
+      questions.value = formattedQuestions
+      totalQuestions.value = parseInt(res.data.total) || 0
+    } else {
+      ElMessage.error(res.message || '获取题目列表失败')
+    }
+  } catch (error) {
+    console.error('获取题目列表出错', error)
+    ElMessage.error('获取题目列表失败，请稍后重试')
+  } finally {
+    loadingQuestions.value = false
+  }
+}
+
+// 页码变化
+const handleQuestionPageChange = (page) => {
+  currentPage.value = page
+  fetchChoiceQuestions()
+}
+
+// 每页条数变化
+const handleQuestionSizeChange = (size) => {
+  pageSize.value = size
+  currentPage.value = 1
+  fetchChoiceQuestions()
+}
+
 onMounted(() => {
   // 获取班级列表
-  setTimeout(() => {
-    classList.value = [
-      {
-        id: 1,
-        name: '高一(1)班',
-        count: 45
-      },
-      {
-        id: 2,
-        name: '高一(2)班',
-        count: 48
-      },
-      {
-        id: 3,
-        name: '高二(1)班',
-        count: 46
-      }
-    ]
-    loadingClasses.value = false
-  }, 1000)
+  fetchClassList()
   
   // 获取题目列表
-  setTimeout(() => {
-    questions.value = [
-      {
-        id: 1,
-        type: 'single',
-        content: '下列哪个不是JavaScript的数据类型？',
-        options: [
-          { label: 'A', content: 'String' },
-          { label: 'B', content: 'Number' },
-          { label: 'C', content: 'Boolean' },
-          { label: 'D', content: 'Char' }
-        ],
-        answer: 'D',
-        points: 5
-      },
-      {
-        id: 2,
-        type: 'multiple',
-        content: '以下哪些是Vue的生命周期钩子？',
-        options: [
-          { label: 'A', content: 'mounted' },
-          { label: 'B', content: 'created' },
-          { label: 'C', content: 'rendering' },
-          { label: 'D', content: 'destroyed' }
-        ],
-        answers: ['A', 'B', 'D'],
-        points: 5
-      },
-      {
-        id: 3,
-        type: 'text',
-        content: '简述Vue组合式API的优势',
-        referenceAnswer: 'Vue组合式API的优势包括更好的代码组织、逻辑复用、类型推导支持以及更小的生产包体积。',
-        points: 10
-      },
-      {
-        id: 4,
-        type: 'text',
-        content: '请解释Vue中ref和reactive的区别',
-        referenceAnswer: 'ref用于基本类型的响应式，reactive用于引用类型的响应式。ref需要通过.value访问，而reactive不需要。ref自动解包在模板中，reactive不能解构或展开。',
-        points: 10
-      }
-    ]
-    loadingQuestions.value = false
-  }, 1500)
+  fetchChoiceQuestions()
 })
 
 const typeFilters = [
@@ -248,7 +298,7 @@ const handleCancel = () => {
             <el-option
               v-for="item in classList"
               :key="item.id"
-              :label="`${item.name} (${item.count}人)`"
+              :label="item.name"
               :value="item.id"
             ></el-option>
           </el-select>
@@ -311,31 +361,33 @@ const handleCancel = () => {
                   <span class="question-points">{{ question.points }}分</span>
                 </div>
                 <div class="question-actions">
-                  <el-button-group>
-                    <el-button 
-                      type="primary" 
-                      :disabled="index === 0" 
-                      size="small" 
-                      @click="handleMoveUp(index)"
-                      icon="arrow-up"
-                    ></el-button>
-                    <el-button 
-                      type="primary" 
-                      :disabled="index === selectedQuestions.length - 1" 
-                      size="small" 
-                      @click="handleMoveDown(index)"
-                      icon="arrow-down"
-                    ></el-button>
-                  </el-button-group>
                   <el-button 
                     type="danger" 
                     size="small" 
                     @click="handleRemoveQuestion(question.id)"
-                    icon="delete"
-                  ></el-button>
+                  >删除</el-button>
                 </div>
               </div>
               <div class="question-content">{{ question.content }}</div>
+              
+              <!-- 显示题目选项 -->
+              <div v-if="question.type === 'single' || question.type === 'multiple'" class="question-options">
+                <div v-for="option in question.options" :key="option.label" class="option-item">
+                  <span class="option-label">{{ option.label }}</span>
+                  <span class="option-content">{{ option.content }}</span>
+                </div>
+                <div class="question-answer">
+                  <strong>正确答案：</strong>
+                  <span v-if="question.type === 'single'">{{ question.answer }}</span>
+                  <span v-else>{{ question.answers ? question.answers.join(', ') : '' }}</span>
+                </div>
+              </div>
+              
+              <!-- 显示参考答案(简答题) -->
+              <div v-if="question.type === 'text'" class="question-reference">
+                <strong>参考答案：</strong>
+                <div class="reference-content">{{ question.referenceAnswer }}</div>
+              </div>
             </div>
           </div>
         </div>
@@ -396,6 +448,19 @@ const handleCancel = () => {
           </div>
           
           <el-empty v-if="filteredQuestions.length === 0 && !loadingQuestions" description="暂无符合条件的题目"></el-empty>
+        </div>
+        
+        <!-- 分页器 -->
+        <div class="dialog-pagination" v-if="totalQuestions > 0">
+          <el-pagination
+            v-model:current-page="currentPage"
+            v-model:page-size="pageSize"
+            :page-sizes="[5, 10, 20, 50]"
+            layout="total, sizes, prev, pager, next, jumper"
+            :total="totalQuestions"
+            @size-change="handleQuestionSizeChange"
+            @current-change="handleQuestionPageChange"
+          />
         </div>
       </div>
     </el-dialog>
@@ -541,5 +606,59 @@ const handleCancel = () => {
 .dialog-option-content {
   line-height: 25px;
   font-size: 12px;
+}
+
+.dialog-pagination {
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.question-options {
+  margin-top: 10px;
+  margin-left: 20px;
+  border-left: 3px solid #ebeef5;
+  padding-left: 10px;
+}
+
+.option-item {
+  display: flex;
+  margin-bottom: 5px;
+}
+
+.option-label {
+  width: 25px;
+  height: 25px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background-color: #f5f7fa;
+  margin-right: 10px;
+  font-size: 12px;
+}
+
+.option-content {
+  line-height: 25px;
+  font-size: 14px;
+}
+
+.question-answer {
+  margin-top: 10px;
+  color: #67c23a;
+}
+
+.question-reference {
+  margin-top: 10px;
+  margin-left: 20px;
+  border-left: 3px solid #ebeef5;
+  padding-left: 10px;
+}
+
+.reference-content {
+  margin-top: 5px;
+  font-size: 14px;
+  color: #606266;
+  line-height: 1.5;
 }
 </style> 

@@ -2,43 +2,51 @@
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import request from '@/utils/request'
 
 const router = useRouter()
 const loading = ref(false)
 
 const classForm = reactive({
-  name: '',
-  year: new Date().getFullYear().toString(),
-  description: ''
+  className: ''
 })
 
 const rules = {
-  name: [
+  className: [
     { required: true, message: '请输入班级名称', trigger: 'blur' },
     { min: 2, max: 20, message: '长度在 2 到 20 个字符', trigger: 'blur' }
-  ],
-  year: [
-    { required: true, message: '请选择年份', trigger: 'change' }
   ]
 }
 
 const formRef = ref(null)
 
-const handleSubmit = () => {
-  formRef.value.validate((valid) => {
+const handleSubmit = async () => {
+  if (!formRef.value) return
+  
+  formRef.value.validate(async (valid) => {
     if (valid) {
       loading.value = true
-      // 模拟提交
-      setTimeout(() => {
-        loading.value = false
-        // 提示创建成功
-        ElMessage({
-          type: 'success',
-          message: '班级创建成功'
+      try {
+        // 调用创建班级接口
+        const res = await request({
+          url: '/class/create',
+          method: 'post',
+          data: classForm
         })
-        // 跳转到班级列表
-        router.push('/teacher/class-list')
-      }, 1000)
+        
+        if (res.code === 0) {
+          ElMessage.success('班级创建成功')
+          // 跳转到班级列表
+          router.push('/teacher/class-list')
+        } else {
+          ElMessage.error(res.message || '创建失败')
+        }
+      } catch (error) {
+        console.error('创建班级出错', error)
+        ElMessage.error('创建失败，请稍后重试')
+      } finally {
+        loading.value = false
+      }
     }
   })
 }
@@ -62,28 +70,8 @@ const handleCancel = () => {
         label-width="120px"
         label-position="right"
       >
-        <el-form-item label="班级名称" prop="name">
-          <el-input v-model="classForm.name" placeholder="请输入班级名称，例如：高一(1)班"></el-input>
-        </el-form-item>
-        
-        <el-form-item label="年份" prop="year">
-          <el-select v-model="classForm.year" placeholder="请选择年份" style="width: 100%">
-            <el-option
-              v-for="year in [2022, 2023, 2024, 2025]"
-              :key="year"
-              :label="year + '年'"
-              :value="year.toString()"
-            ></el-option>
-          </el-select>
-        </el-form-item>
-        
-        <el-form-item label="班级描述" prop="description">
-          <el-input
-            v-model="classForm.description"
-            type="textarea"
-            :rows="4"
-            placeholder="请输入班级描述"
-          ></el-input>
+        <el-form-item label="班级名称" prop="className">
+          <el-input v-model="classForm.className" placeholder="请输入班级名称，例如：高一(1)班"></el-input>
         </el-form-item>
         
         <el-form-item>

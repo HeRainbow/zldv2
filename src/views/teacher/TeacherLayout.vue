@@ -1,16 +1,54 @@
 <script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import request from '@/utils/request'
 
 const router = useRouter()
+const route = useRoute()
 const activeIndex = ref('/teacher/class-list')
+
+// 监听路由变化，更新activeIndex
+watch(() => route.path, (newPath) => {
+  activeIndex.value = newPath
+}, { immediate: true })
+
+// 初始化时设置activeIndex为当前路由路径
+onMounted(() => {
+  activeIndex.value = route.path
+})
 
 const handleSelect = (key) => {
   router.push(key)
 }
 
-const handleLogout = () => {
-  router.push('/login')
+// 处理退出登录
+const handleLogout = async () => {
+  try {
+    // 调用退出登录接口
+    const res = await request({
+      url: '/user/logout',
+      method: 'post'
+    })
+    
+    if (res.code === 0) {
+      // 清除本地用户信息和token
+      localStorage.removeItem('userInfo')
+      localStorage.removeItem('token')
+      ElMessage.success('退出登录成功')
+      // 跳转到登录页
+      router.push('/login')
+    } else {
+      ElMessage.error(res.message || '退出失败')
+    }
+  } catch (error) {
+    console.error('退出登录出错', error)
+    ElMessage.error('退出失败，请稍后重试')
+    // 即使接口调用失败，也清除本地信息并跳转到登录页
+    localStorage.removeItem('userInfo')
+    localStorage.removeItem('token')
+    router.push('/login')
+  }
 }
 </script>
 
@@ -41,7 +79,7 @@ const handleLogout = () => {
           @select="handleSelect"
           router
         >
-          <el-sub-menu index="1">
+          <el-sub-menu index="/teacher/class">
             <template #title>
               <el-icon><user-filled /></el-icon>
               <span>班级管理</span>
@@ -50,7 +88,7 @@ const handleLogout = () => {
             <el-menu-item index="/teacher/create-class">创建班级</el-menu-item>
           </el-sub-menu>
           
-          <el-sub-menu index="2">
+          <el-sub-menu index="/teacher/exam">
             <template #title>
               <el-icon><document /></el-icon>
               <span>考试管理</span>
@@ -59,7 +97,7 @@ const handleLogout = () => {
             <el-menu-item index="/teacher/create-exam">创建考试</el-menu-item>
           </el-sub-menu>
           
-          <el-sub-menu index="3">
+          <el-sub-menu index="/teacher/question">
             <template #title>
               <el-icon><edit /></el-icon>
               <span>题目管理</span>

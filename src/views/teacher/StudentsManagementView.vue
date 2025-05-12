@@ -2,6 +2,7 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import request from '@/utils/request'
 
 const route = useRoute()
 const router = useRouter()
@@ -9,85 +10,150 @@ const classId = route.query.classId
 const loading = ref(true)
 const uploadLoading = ref(false)
 const importDialogVisible = ref(false)
+const addStudentDialogVisible = ref(false)
+const addStudentLoading = ref(false)
 const searchText = ref('')
+const total = ref(0)
+const currentPage = ref(1)
+const pageSize = ref(10)
+const uploadFile = ref(null)
 
 const classInfo = reactive({
-  id: null,
-  name: '',
-  year: '',
-  count: 0
+  id: classId,
+  name: '班级详情'
 })
+
+// 添加学生表单
+const addStudentForm = reactive({
+  studentId: '',
+  studentName: ''
+})
+
+// 添加学生表单验证规则
+const addStudentRules = {
+  studentId: [
+    { required: true, message: '请输入学生ID', trigger: 'blur' },
+  ],
+  studentName: [
+    { required: true, message: '请输入学生姓名', trigger: 'blur' },
+    { min: 2, max: 20, message: '姓名长度在 2 到 20 个字符', trigger: 'blur' }
+  ]
+}
+
+const addStudentFormRef = ref(null)
 
 const students = ref([])
 
-onMounted(() => {
-  // 模拟获取班级信息和学生列表
-  setTimeout(() => {
-    // 获取班级信息
-    classInfo.id = classId
-    classInfo.name = '高一(1)班'
-    classInfo.year = '2023'
-    classInfo.count = 45
-    
-    // 获取学生列表
-    students.value = [
-      {
-        id: 1,
-        studentId: '202301001',
-        name: '张三',
-        gender: '男',
-        phone: '13800138001'
-      },
-      {
-        id: 2,
-        studentId: '202301002',
-        name: '李四',
-        gender: '男',
-        phone: '13800138002'
-      },
-      {
-        id: 3,
-        studentId: '202301003',
-        name: '王五',
-        gender: '男',
-        phone: '13800138003'
-      },
-      {
-        id: 4,
-        studentId: '202301004',
-        name: '赵六',
-        gender: '女',
-        phone: '13800138004'
-      },
-      {
-        id: 5,
-        studentId: '202301005',
-        name: '钱七',
-        gender: '女',
-        phone: '13800138005'
+// 获取学生列表
+const fetchStudentList = async () => {
+  if (!classId) {
+    ElMessage.error('班级ID不能为空')
+    router.push('/teacher/class-list')
+    return
+  }
+  
+  loading.value = true
+  
+  try {
+    const res = await request({
+      url: '/student/get/list',
+      method: 'post',
+      data: {
+        classId,
+        current: currentPage.value,
+        pageSize: pageSize.value,
+        sortField: "",
+        sortOrder: ""
       }
-    ]
+    })
     
+    if (res.code === 0 && res.data) {
+      students.value = res.data.records || []
+      total.value = parseInt(res.data.total) || 0
+    } else {
+      ElMessage.error(res.message || '获取学生列表失败')
+    }
+  } catch (error) {
+    console.error('获取学生列表出错', error)
+    ElMessage.error('获取学生列表失败，请稍后重试')
+  } finally {
     loading.value = false
-  }, 1000)
+  }
+}
+
+// 页码变化
+const handlePageChange = (page) => {
+  currentPage.value = page
+  fetchStudentList()
+}
+
+// 每页条数变化
+const handleSizeChange = (size) => {
+  pageSize.value = size
+  currentPage.value = 1
+  fetchStudentList()
+}
+
+onMounted(() => {
+  fetchStudentList()
 })
 
 const filteredStudents = computed(() => {
   if (!searchText.value) return students.value
   
   return students.value.filter(student => {
-    return student.name.includes(searchText.value) || 
-           student.studentId.includes(searchText.value)
+    return student.name.toLowerCase().includes(searchText.value.toLowerCase())
   })
 })
 
 const handleShowImportDialog = () => {
+  uploadFile.value = null
   importDialogVisible.value = true
 }
 
+// 显示添加学生对话框
 const handleAddStudent = () => {
-  // 实际应用中应该弹出添加学生表单
-  console.log('添加学生')
+  // 重置表单
+  addStudentForm.studentId = ''
+  addStudentForm.studentName = ''
+  addStudentDialogVisible.value = true
+}
+
+// 提交添加学生表单
+const submitAddStudent = async () => {
+  if (!addStudentFormRef.value) return
+  
+  addStudentFormRef.value.validate(async (valid) => {
+    if (valid) {
+      addStudentLoading.value = true
+      try {
+        // 调用添加学生接口
+        const res = await request({
+          url: '/class/add/one',
+          method: 'post',
+          data: {
+            classId: classId,
+            studentId: addStudentForm.studentId,
+            studentName: addStudentForm.studentName
+          }
+        })
+        
+        if (res.code === 0) {
+          ElMessage.success('添加学生成功')
+          addStudentDialogVisible.value = false
+          // 刷新学生列表
+          fetchStudentList()
+        } else {
+          ElMessage.error(res.message || '添加学生失败')
+        }
+      } catch (error) {
+        console.error('添加学生出错', error)
+        ElMessage.error('添加学生失败，请稍后重试')
+      } finally {
+        addStudentLoading.value = false
+      }
+    }
+  })
 }
 
 const handleEditStudent = (student) => {
@@ -109,7 +175,6 @@ const handleDeleteStudent = (student) => {
     const index = students.value.findIndex(item => item.id === student.id)
     if (index !== -1) {
       students.value.splice(index, 1)
-      classInfo.count--
       ElMessage({
         type: 'success',
         message: '删除成功'
@@ -120,61 +185,81 @@ const handleDeleteStudent = (student) => {
   })
 }
 
-// 模拟文件上传处理
+// 刷新学生列表
+const refreshStudentList = () => {
+  fetchStudentList()
+}
+
+// 处理文件变化
 const handleFileChange = (file) => {
+  // 仅保存文件引用，不自动上传
+  uploadFile.value = file.raw
+  return false // 阻止自动上传
+}
+
+// 提交批量导入学生
+const submitBatchImport = async () => {
+  if (!uploadFile.value) {
+    ElMessage.warning('请先选择文件')
+    return
+  }
+  
   // 检查文件类型
-  const isExcel = file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || 
-                  file.type === 'application/vnd.ms-excel'
+  const isExcel = uploadFile.value.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || 
+                  uploadFile.value.type === 'application/vnd.ms-excel' ||
+                  uploadFile.value.name.endsWith('.xlsx') ||
+                  uploadFile.value.name.endsWith('.xls')
   
   if (!isExcel) {
     ElMessage.error('上传文件只能是 Excel 格式!')
-    return false
+    return
   }
   
   // 文件大小限制: 10MB
-  const isLt10M = file.size / 1024 / 1024 < 10
+  const isLt10M = uploadFile.value.size / 1024 / 1024 < 10
   
   if (!isLt10M) {
     ElMessage.error('上传文件大小不能超过 10MB!')
-    return false
+    return
   }
   
-  // 模拟上传和解析
   uploadLoading.value = true
   
-  setTimeout(() => {
-    // 模拟新增5名学生
-    const newStudents = [
-      {
-        id: students.value.length + 1,
-        studentId: '202301006',
-        name: '孙八',
-        gender: '男',
-        phone: '13800138006'
-      },
-      {
-        id: students.value.length + 2,
-        studentId: '202301007',
-        name: '周九',
-        gender: '女',
-        phone: '13800138007'
+  try {
+    // 创建FormData对象
+    const formData = new FormData()
+    formData.append('file', uploadFile.value)
+    formData.append('classId', classId)
+    
+    // 调用批量导入接口
+    const res = await request({
+      url: '/class/add/batch',
+      method: 'post',
+      data: formData,
+      headers: {
+        'Content-Type': 'multipart/form-data'
       }
-    ]
-    
-    // 添加到学生列表
-    students.value = [...students.value, ...newStudents]
-    classInfo.count = students.value.length
-    
-    uploadLoading.value = false
-    importDialogVisible.value = false
-    
-    ElMessage({
-      type: 'success',
-      message: '成功导入 2 名学生'
     })
-  }, 2000)
-  
-  return false // 阻止自动上传
+    
+    if (res.code === 0) {
+      ElMessage.success('批量导入学生成功')
+      importDialogVisible.value = false
+      // 刷新学生列表
+      fetchStudentList()
+    } else {
+      ElMessage.error(res.message || '批量导入学生失败')
+    }
+  } catch (error) {
+    console.error('批量导入学生出错', error)
+    ElMessage.error('批量导入学生失败，请稍后重试')
+  } finally {
+    uploadLoading.value = false
+  }
+}
+
+// 下载导入模板
+const downloadTemplate = () => {
+  ElMessage.info('下载模板功能暂未实现')
 }
 
 const exportStudents = () => {
@@ -191,9 +276,10 @@ const exportStudents = () => {
     <div class="page-header">
       <div class="header-left">
         <h2>学生管理 - {{ classInfo.name }}</h2>
-        <span class="class-info">年份: {{ classInfo.year }} | 学生数量: {{ classInfo.count }}</span>
+        <span class="class-info">班级ID: {{ classInfo.id }} | 学生总数: {{ total }}</span>
       </div>
       <div class="header-actions">
+        <el-button @click="refreshStudentList">刷新</el-button>
         <el-button type="success" @click="handleShowImportDialog">导入学生</el-button>
         <el-button type="primary" @click="handleAddStudent">添加学生</el-button>
         <el-button type="info" @click="exportStudents">导出学生</el-button>
@@ -204,7 +290,7 @@ const exportStudents = () => {
       <div class="toolbar">
         <el-input
           v-model="searchText"
-          placeholder="搜索学生姓名或学号"
+          placeholder="搜索学生姓名"
           clearable
           prefix-icon="search"
           style="width: 300px"
@@ -212,10 +298,8 @@ const exportStudents = () => {
       </div>
       
       <el-table :data="filteredStudents" v-loading="loading" style="width: 100%; margin-top: 20px">
-        <el-table-column prop="studentId" label="学号" width="120"></el-table-column>
-        <el-table-column prop="name" label="姓名" width="120"></el-table-column>
-        <el-table-column prop="gender" label="性别" width="80"></el-table-column>
-        <el-table-column prop="phone" label="联系电话" min-width="150"></el-table-column>
+        <el-table-column prop="id" label="学生ID" width="100"></el-table-column>
+        <el-table-column prop="name" label="姓名" min-width="120"></el-table-column>
         <el-table-column label="操作" width="180" fixed="right">
           <template #default="scope">
             <el-button type="warning" size="small" @click="handleEditStudent(scope.row)">
@@ -227,16 +311,28 @@ const exportStudents = () => {
           </template>
         </el-table-column>
       </el-table>
+      
+      <div class="pagination" v-if="total > 0">
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :page-sizes="[5, 10, 20, 50]"
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="total"
+          @size-change="handleSizeChange"
+          @current-change="handlePageChange"
+        />
+      </div>
     </el-card>
     
     <!-- 导入学生对话框 -->
     <el-dialog
       v-model="importDialogVisible"
-      title="导入学生"
+      title="批量导入学生"
       width="500px"
     >
       <div class="import-dialog-content">
-        <p class="import-tips">请上传符合格式的Excel文件，表格列必须包含：学号、姓名、性别、联系电话</p>
+        <p class="import-tips">请上传符合格式的Excel文件，表格列必须包含：学生ID和姓名</p>
         
         <el-upload
           class="upload-excel"
@@ -259,18 +355,46 @@ const exportStudents = () => {
         </el-upload>
         
         <div style="margin-top: 20px; text-align: center">
-          <el-button type="primary" :loading="uploadLoading">开始导入</el-button>
+          <el-button type="primary" :loading="uploadLoading" @click="submitBatchImport">开始导入</el-button>
           <el-button @click="importDialogVisible = false">取消</el-button>
         </div>
         
         <div style="margin-top: 20px;">
           <h4>模板下载</h4>
-          <el-button type="text">
+          <el-button type="text" @click="downloadTemplate">
             <el-icon><download /></el-icon>
             下载导入模板
           </el-button>
         </div>
       </div>
+    </el-dialog>
+    
+    <!-- 添加学生对话框 -->
+    <el-dialog
+      v-model="addStudentDialogVisible"
+      title="添加学生"
+      width="500px"
+    >
+      <el-form
+        ref="addStudentFormRef"
+        :model="addStudentForm"
+        :rules="addStudentRules"
+        label-width="100px"
+        label-position="right"
+      >
+        <el-form-item label="学生ID" prop="studentId">
+          <el-input v-model="addStudentForm.studentId" placeholder="请输入学生ID" />
+        </el-form-item>
+        <el-form-item label="学生姓名" prop="studentName">
+          <el-input v-model="addStudentForm.studentName" placeholder="请输入学生姓名" />
+        </el-form-item>
+        <el-form-item>
+          <div style="text-align: center;">
+            <el-button type="primary" :loading="addStudentLoading" @click="submitAddStudent">提交</el-button>
+            <el-button @click="addStudentDialogVisible = false">取消</el-button>
+          </div>
+        </el-form-item>
+      </el-form>
     </el-dialog>
   </div>
 </template>
@@ -310,6 +434,12 @@ const exportStudents = () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.pagination {
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .import-dialog-content {

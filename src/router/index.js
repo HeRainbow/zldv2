@@ -82,6 +82,11 @@ const router = createRouter({
           component: () => import('../views/teacher/CreateQuestionView.vue'),
         },
         {
+          path: 'edit-question',
+          name: 'editQuestion',
+          component: () => import('../views/teacher/EditQuestionView.vue'),
+        },
+        {
           path: 'students-management',
           name: 'studentsManagement',
           component: () => import('../views/teacher/StudentsManagementView.vue'),

@@ -1,6 +1,8 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import request from '@/utils/request'
 
 const router = useRouter()
 const activeIndex = ref('/student/exam-list')
@@ -10,8 +12,33 @@ const handleSelect = (key) => {
   router.push(key)
 }
 
-const handleLogout = () => {
-  router.push('/login')
+// 处理退出登录
+const handleLogout = async () => {
+  try {
+    // 调用退出登录接口
+    const res = await request({
+      url: '/user/logout',
+      method: 'post'
+    })
+    
+    if (res.code === 0) {
+      // 清除本地用户信息和token
+      localStorage.removeItem('userInfo')
+      localStorage.removeItem('token')
+      ElMessage.success('退出登录成功')
+      // 跳转到登录页
+      router.push('/login')
+    } else {
+      ElMessage.error(res.message || '退出失败')
+    }
+  } catch (error) {
+    console.error('退出登录出错', error)
+    ElMessage.error('退出失败，请稍后重试')
+    // 即使接口调用失败，也清除本地信息并跳转到登录页
+    localStorage.removeItem('userInfo')
+    localStorage.removeItem('token')
+    router.push('/login')
+  }
 }
 </script>
 

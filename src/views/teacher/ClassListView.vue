@@ -1,40 +1,82 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import request from '@/utils/request'
 
 const router = useRouter()
 const classList = ref([])
 const loading = ref(true)
 const searchText = ref('')
+const total = ref(0)
+const currentPage = ref(1)
+const pageSize = ref(10)
+
+// 获取用户信息
+const getUserInfo = () => {
+  const userInfoStr = localStorage.getItem('userInfo')
+  if (!userInfoStr) return null
+  try {
+    return JSON.parse(userInfoStr)
+  } catch (error) {
+    console.error('解析用户信息失败', error)
+    return null
+  }
+}
+
+// 获取班级列表
+const fetchClassList = async () => {
+  loading.value = true
+  const userInfo = getUserInfo()
+  
+  if (!userInfo || !userInfo.id) {
+    ElMessage.error('获取用户信息失败，请重新登录')
+    router.push('/login')
+    return
+  }
+  
+  try {
+    const res = await request({
+      url: '/class/listClass',
+      method: 'post',
+      data: {
+        current: currentPage.value,
+        pageSize: pageSize.value,
+        sortField: "",
+        sortOrder: "",
+        teacherId: userInfo.id
+      }
+    })
+    
+    if (res.code === 0 && res.data) {
+      classList.value = res.data.records || []
+      total.value = parseInt(res.data.total) || 0
+    } else {
+      ElMessage.error(res.message || '获取班级列表失败')
+    }
+  } catch (error) {
+    console.error('获取班级列表出错', error)
+    ElMessage.error('获取班级列表失败，请稍后重试')
+  } finally {
+    loading.value = false
+  }
+}
+
+// 页码变化
+const handlePageChange = (page) => {
+  currentPage.value = page
+  fetchClassList()
+}
+
+// 每页条数变化
+const handleSizeChange = (size) => {
+  pageSize.value = size
+  currentPage.value = 1
+  fetchClassList()
+}
 
 onMounted(() => {
-  // 模拟获取班级列表数据
-  setTimeout(() => {
-    classList.value = [
-      {
-        id: 1,
-        name: '物联网(1)班',
-        year: '2023',
-        count: 45,
-        createTime: '2023-09-01'
-      },
-      {
-        id: 2,
-        name: '物联网(2)班',
-        year: '2023',
-        count: 48,
-        createTime: '2023-09-01'
-      },
-      {
-        id: 3,
-        name: '计算机(1)班',
-        year: '2022',
-        count: 46,
-        createTime: '2022-09-01'
-      }
-    ]
-    loading.value = false
-  }, 1000)
+  fetchClassList()
 })
 
 const handleCreateClass = () => {
@@ -66,13 +108,21 @@ const filteredClassList = computed(() => {
     return item.name.toLowerCase().includes(searchText.value.toLowerCase())
   })
 })
+
+// 刷新班级列表
+const refreshClassList = () => {
+  fetchClassList()
+}
 </script>
 
 <template>
   <div class="class-list-container">
     <div class="page-header">
       <h2>班级管理</h2>
-      <el-button type="primary" @click="handleCreateClass">创建班级</el-button>
+      <div>
+        <el-button type="primary" @click="handleCreateClass">创建班级</el-button>
+        <el-button @click="refreshClassList">刷新</el-button>
+      </div>
     </div>
     
     <el-card class="class-list-card">
@@ -88,9 +138,11 @@ const filteredClassList = computed(() => {
       
       <el-table :data="filteredClassList" v-loading="loading" style="width: 100%; margin-top: 20px">
         <el-table-column prop="name" label="班级名称" min-width="180"></el-table-column>
-        <el-table-column prop="year" label="年份" width="120"></el-table-column>
-        <el-table-column prop="count" label="学生数量" width="120"></el-table-column>
-        <el-table-column prop="createTime" label="创建时间" width="180"></el-table-column>
+        <el-table-column label="创建时间" width="180">
+          <template #default="scope">
+            {{ new Date(scope.row.createTime).toLocaleString() }}
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="250" fixed="right">
           <template #default="scope">
             <el-button type="primary" size="small" @click="handleViewStudents(scope.row.id)">
@@ -105,6 +157,18 @@ const filteredClassList = computed(() => {
           </template>
         </el-table-column>
       </el-table>
+      
+      <div class="pagination" v-if="total > 0">
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :page-sizes="[5, 10, 20, 50]"
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="total"
+          @size-change="handleSizeChange"
+          @current-change="handlePageChange"
+        />
+      </div>
     </el-card>
   </div>
 </template>
@@ -129,5 +193,11 @@ const filteredClassList = computed(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.pagination {
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
 }
 </style> 
