@@ -150,11 +150,24 @@ import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
 
+// 接收defaultType作为props
+const props = defineProps({
+  id: {
+    type: [String, Number],
+    default: ''
+  },
+  defaultType: {
+    type: String,
+    default: 'single',
+    validator: (value) => ['single', 'fill', 'text', 'programming'].includes(value)
+  }
+})
+
 const router = useRouter()
 const route = useRoute()
-const questionId = route.query.id
+const questionId = props.id || route.query.id
 const loading = ref(false)
-const activeTab = ref('single')
+const activeTab = ref(props.defaultType)
 const formRef = ref(null)
 
 // 标签相关变量
@@ -165,7 +178,7 @@ const tagInputRef = ref(null)
 // 题目表单数据
 const questionForm = reactive({
   id: questionId, // 重要：确保id正确设置
-  type: 'single',
+  type: props.defaultType,
   content: '',
   options: [
     { label: 'A', content: '' },
@@ -241,20 +254,37 @@ const fetchQuestionDetail = async () => {
   }
   
   loading.value = true
-  console.log('获取题目详情，ID:', questionId)
+  console.log('获取题目详情，ID:', questionId, '类型:', activeTab.value)
   
   try {
-    const res = await request({
-      url: '/op/list/page',
-      method: 'post',
-      data: {
-        id: Number(questionId),
-        current: 1,
-        pageSize: 1,
-        sortField: "",
-        sortOrder: ""
-      }
-    })
+    let res;
+    
+    // 根据题目类型选择不同的接口
+    if (activeTab.value === 'fill') {
+      // 获取填空题详情
+      res = await request({
+        url: '/blank/list/page',
+        method: 'post',
+        data: {
+          id: Number(questionId),
+          current: 1,
+          pageSize: 1
+        }
+      })
+    } else {
+      // 获取其他类型题目详情
+      res = await request({
+        url: '/op/list/page',
+        method: 'post',
+        data: {
+          id: Number(questionId),
+          current: 1,
+          pageSize: 1,
+          sortField: "",
+          sortOrder: ""
+        }
+      })
+    }
     
     if (res.code === 0 && res.data && res.data.records && res.data.records.length > 0) {
       // 填充表单数据
@@ -263,7 +293,7 @@ const fetchQuestionDetail = async () => {
       questionForm.content = questionData.title
       
       // 根据题型设置不同字段
-      const type = questionData.type || 'single'
+      const type = questionData.type || activeTab.value
       
       if (type === 'single') {
         questionForm.options = [
@@ -274,7 +304,8 @@ const fetchQuestionDetail = async () => {
         ]
         questionForm.answer = questionData.answer || ''
       } else if (type === 'fill') {
-        questionForm.fillAnswer = questionData.fillAnswer || ''
+        // 填空题答案直接从answer字段获取
+        questionForm.fillAnswer = questionData.answer || ''
       } else if (type === 'text') {
         questionForm.referenceAnswer = questionData.referenceAnswer || ''
       } else if (type === 'programming') {
@@ -283,21 +314,28 @@ const fetchQuestionDetail = async () => {
       }
       
       // 确保tags是数组
-      if (questionData.tags && typeof questionData.tags === 'string') {
-        try {
-          // 如果是字符串，尝试解析成数组
-          questionForm.tags = JSON.parse(questionData.tags) || []
-        } catch (e) {
-          console.error('解析tags失败:', e)
+      if (questionData.tags) {
+        if (typeof questionData.tags === 'string') {
+          try {
+            // 如果是字符串，尝试解析成数组
+            questionForm.tags = JSON.parse(questionData.tags) || []
+          } catch (e) {
+            console.error('解析tags失败:', e)
+            questionForm.tags = []
+          }
+        } else if (Array.isArray(questionData.tags)) {
+          // 如果直接是数组则直接使用
+          questionForm.tags = questionData.tags
+        } else {
           questionForm.tags = []
         }
       } else {
-        // 如果已经是数组或其他值，确保它是数组
-        questionForm.tags = Array.isArray(questionData.tags) ? questionData.tags : []
+        questionForm.tags = []
       }
       
       // 设置当前标签页
       activeTab.value = type
+      questionForm.type = type
       
       console.log('题目详情获取成功:', questionData)
     } else {
@@ -400,76 +438,121 @@ const handleSubmit = () => {
     if (valid) {
       loading.value = true
       
-      // 根据题型构建不同的提交数据
-      let updateData = {
-        id: Number(questionForm.id), // 确保ID是数字类型
-        title: questionForm.content,
-        type: questionForm.type,
-        tags: Array.isArray(questionForm.tags) ? questionForm.tags : [] // 确保tags是数组
-      }
-      
-      // 根据不同题型添加特定字段
-      if (questionForm.type === 'single') {
-        Object.assign(updateData, {
-          answer: questionForm.answer,
-          optionA: questionForm.options.find(o => o.label === 'A')?.content || '',
-          optionB: questionForm.options.find(o => o.label === 'B')?.content || '',
-          optionC: questionForm.options.find(o => o.label === 'C')?.content || '',
-          optionD: questionForm.options.find(o => o.label === 'D')?.content || ''
+      // 根据题型构建不同的提交数据和API
+      if (questionForm.type === 'fill') {
+        // 填空题专用的更新数据
+        const fillUpdateData = {
+          id: Number(questionForm.id),
+          title: questionForm.content,
+          answer: questionForm.fillAnswer,
+          tags: questionForm.tags // 确保tags是数组
+        }
+        
+        console.log('更新填空题的数据:', fillUpdateData)
+        
+        // 调用填空题更新接口
+        request({
+          url: '/blank/update',
+          method: 'post',
+          data: fillUpdateData
         })
-      } else if (questionForm.type === 'fill') {
-        Object.assign(updateData, {
-          fillAnswer: questionForm.fillAnswer
+        .then(res => {
+          loading.value = false
+          if (res.code === 0) {
+            ElMessage({
+              type: 'success',
+              message: '填空题更新成功'
+            })
+            // 跳转到填空题列表页
+            router.push('/teacher/blank-questions')
+          } else {
+            ElMessage({
+              type: 'error',
+              message: res.message || '更新失败'
+            })
+          }
         })
-      } else if (questionForm.type === 'text') {
-        Object.assign(updateData, {
-          referenceAnswer: questionForm.referenceAnswer
-        })
-      } else if (questionForm.type === 'programming') {
-        Object.assign(updateData, {
-          programmingAnswer: questionForm.programmingAnswer,
-          testCases: questionForm.testCases
-        })
-      }
-      
-      console.log('提交更新的数据:', updateData)
-      
-      // 调用后端API更新题目
-      request({
-        url: '/op/update',
-        method: 'post',
-        data: updateData
-      })
-      .then(res => {
-        loading.value = false
-        if (res.code === 0) {
-          ElMessage({
-            type: 'success',
-            message: '题目更新成功'
-          })
-          // 跳转到题库列表页
-          router.push('/teacher/question-bank')
-        } else {
+        .catch(error => {
+          loading.value = false
           ElMessage({
             type: 'error',
-            message: res.message || '更新失败'
+            message: '更新失败: ' + (error.message || '未知错误')
+          })
+          console.error('更新填空题失败:', error)
+        })
+      } else {
+        // 其他类型题目的更新逻辑
+        let updateData = {
+          id: Number(questionForm.id), // 确保ID是数字类型
+          title: questionForm.content,
+          type: questionForm.type,
+          tags: JSON.stringify(questionForm.tags || []) // 对于其他题型，tags需要是JSON字符串
+        }
+        
+        // 根据不同题型添加特定字段
+        if (questionForm.type === 'single') {
+          Object.assign(updateData, {
+            answer: questionForm.answer,
+            optionA: questionForm.options.find(o => o.label === 'A')?.content || '',
+            optionB: questionForm.options.find(o => o.label === 'B')?.content || '',
+            optionC: questionForm.options.find(o => o.label === 'C')?.content || '',
+            optionD: questionForm.options.find(o => o.label === 'D')?.content || ''
+          })
+        } else if (questionForm.type === 'text') {
+          Object.assign(updateData, {
+            referenceAnswer: questionForm.referenceAnswer
+          })
+        } else if (questionForm.type === 'programming') {
+          Object.assign(updateData, {
+            programmingAnswer: questionForm.programmingAnswer,
+            testCases: questionForm.testCases
           })
         }
-      })
-      .catch(error => {
-        loading.value = false
-        ElMessage({
-          type: 'error',
-          message: '更新失败: ' + (error.message || '未知错误')
+        
+        console.log('更新题目的数据:', updateData)
+        
+        // 调用通用题目更新接口
+        request({
+          url: '/op/update',
+          method: 'post',
+          data: updateData
         })
-        console.error('更新题目失败:', error)
-      })
+        .then(res => {
+          loading.value = false
+          if (res.code === 0) {
+            ElMessage({
+              type: 'success',
+              message: '题目更新成功'
+            })
+            // 跳转到题库列表页
+            router.push('/teacher/question-bank')
+          } else {
+            ElMessage({
+              type: 'error',
+              message: res.message || '更新失败'
+            })
+          }
+        })
+        .catch(error => {
+          loading.value = false
+          ElMessage({
+            type: 'error',
+            message: '更新失败: ' + (error.message || '未知错误')
+          })
+          console.error('更新题目失败:', error)
+        })
+      }
     }
   })
 }
 
 const handleCancel = () => {
-  router.push('/teacher/question-bank')
+  // 根据题目类型选择返回的页面
+  if (questionForm.type === 'fill') {
+    router.push('/teacher/blank-questions')
+  } else {
+    router.push('/teacher/question-bank')
+  }
 }
 
 const handlePreview = () => {
