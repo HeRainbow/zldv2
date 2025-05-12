@@ -102,7 +102,8 @@ const handleLogout = async () => {
               <el-icon><edit /></el-icon>
               <span>题目管理</span>
             </template>
-            <el-menu-item index="/teacher/question-bank">题库列表</el-menu-item>
+            <el-menu-item index="/teacher/question-bank">单选题管理</el-menu-item>
+            <el-menu-item index="/teacher/blank-questions">填空题管理</el-menu-item>
             <el-menu-item index="/teacher/create-question">创建题目</el-menu-item>
           </el-sub-menu>
           

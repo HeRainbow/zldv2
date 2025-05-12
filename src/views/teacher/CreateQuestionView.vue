@@ -1,12 +1,21 @@
 <script setup>
-import { ref, reactive, computed, watch, nextTick } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
 
+// 接收defaultType作为props，默认为single
+const props = defineProps({
+  defaultType: {
+    type: String,
+    default: 'single',
+    validator: (value) => ['single', 'fill', 'text', 'programming'].includes(value)
+  }
+})
+
 const router = useRouter()
 const loading = ref(false)
-const activeTab = ref('single')
+const activeTab = ref(props.defaultType) // 使用props中的defaultType作为初始值
 const formRef = ref(null)
 
 // 标签相关变量
@@ -24,7 +33,7 @@ const questionTypes = [
 
 // 题目表单数据
 const questionForm = reactive({
-  type: 'single',
+  type: props.defaultType, // 使用props中的defaultType作为初始值
   content: '',
   points: 5,
   options: [
@@ -159,7 +168,7 @@ const handleSubmit = () => {
       let submitData = {
         title: questionForm.content,
         type: questionForm.type,
-        tags: Array.isArray(questionForm.tags) ? questionForm.tags : [] // 确保tags是数组
+        tags: Array.isArray(questionForm.tags) ? JSON.stringify(questionForm.tags) : '[]' // 确保tags是JSON字符串
       }
       
       // 根据不同题型添加特定字段
@@ -171,57 +180,106 @@ const handleSubmit = () => {
           optionC: questionForm.options.find(o => o.label === 'C')?.content || '',
           optionD: questionForm.options.find(o => o.label === 'D')?.content || ''
         })
-      } else if (questionForm.type === 'fill') {
-        Object.assign(submitData, {
-          fillAnswer: questionForm.fillAnswer
+        
+        // 调用添加单选题接口
+        request({
+          url: '/op/add',
+          method: 'post',
+          data: submitData
         })
+        .then(handleSubmitResponse)
+        .catch(handleSubmitError)
+        
+      } else if (questionForm.type === 'fill') {
+        // 构建填空题专用的提交数据
+        const fillSubmitData = {
+          title: questionForm.content,
+          answer: questionForm.fillAnswer,
+          tags: questionForm.tags // 使用表单中的tags数组
+        }
+        
+        // 调用添加填空题接口
+        request({
+          url: '/blank/add',
+          method: 'post',
+          data: fillSubmitData
+        })
+        .then(handleSubmitResponse)
+        .catch(handleSubmitError)
+        
       } else if (questionForm.type === 'text') {
         Object.assign(submitData, {
           referenceAnswer: questionForm.referenceAnswer
         })
+        
+        // 调用添加简答题接口
+        request({
+          url: '/op/add',
+          method: 'post',
+          data: submitData
+        })
+        .then(handleSubmitResponse)
+        .catch(handleSubmitError)
+        
       } else if (questionForm.type === 'programming') {
         Object.assign(submitData, {
           programmingAnswer: questionForm.programmingAnswer,
           testCases: questionForm.testCases
         })
-      }
-      
-      // 调用后端API创建题目
-      request({
-        url: '/op/add',
-        method: 'post',
-        data: submitData
-      })
-      .then(res => {
-        loading.value = false
-        if (res.code === 0) {
-          ElMessage({
-            type: 'success',
-            message: '题目创建成功'
-          })
-          // 跳转到题库列表页
-          router.push('/teacher/question-bank')
-        } else {
-          ElMessage({
-            type: 'error',
-            message: res.message || '创建失败'
-          })
-        }
-      })
-      .catch(error => {
-        loading.value = false
-        ElMessage({
-          type: 'error',
-          message: '创建失败: ' + (error.message || '未知错误')
+        
+        // 调用添加编程题接口
+        request({
+          url: '/op/add',
+          method: 'post',
+          data: submitData
         })
-        console.error('创建题目失败:', error)
-      })
+        .then(handleSubmitResponse)
+        .catch(handleSubmitError)
+      }
     }
   })
 }
 
+// 处理提交响应
+const handleSubmitResponse = (res) => {
+  loading.value = false
+  if (res.code === 0) {
+    ElMessage({
+      type: 'success',
+      message: '题目创建成功'
+    })
+    
+    // 根据题目类型跳转到不同的页面
+    if (questionForm.type === 'fill') {
+      router.push('/teacher/blank-questions')
+    } else {
+      router.push('/teacher/question-bank')
+    }
+  } else {
+    ElMessage({
+      type: 'error',
+      message: res.message || '创建失败'
+    })
+  }
+}
+
+// 处理提交错误
+const handleSubmitError = (error) => {
+  loading.value = false
+  ElMessage({
+    type: 'error',
+    message: '创建失败: ' + (error.message || '未知错误')
+  })
+  console.error('创建题目失败:', error)
+}
+
 const handleCancel = () => {
-  router.push('/teacher/question-bank')
+  // 根据题目类型跳转到不同的页面
+  if (questionForm.type === 'fill') {
+    router.push('/teacher/blank-questions')
+  } else {
+    router.push('/teacher/question-bank')
+  }
 }
 
 const handlePreview = () => {
@@ -254,12 +312,19 @@ const handleAddTag = () => {
 const handleRemoveTag = (index) => {
   questionForm.tags.splice(index, 1)
 }
+
+// 组件挂载后的操作
+onMounted(() => {
+  // 设置默认activeTab
+  activeTab.value = props.defaultType
+  questionForm.type = props.defaultType
+})
 </script>
 
 <template>
   <div class="create-question-container">
     <div class="page-header">
-      <h2>创建题目</h2>
+      <h2>{{ questionForm.type === 'fill' ? '创建填空题' : '创建题目' }}</h2>
     </div>
     
     <el-card class="question-form-card">

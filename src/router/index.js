@@ -90,6 +90,27 @@ const router = createRouter({
           path: 'students-management',
           name: 'studentsManagement',
           component: () => import('../views/teacher/StudentsManagementView.vue'),
+        },
+        // 填空题管理相关路由
+        {
+          path: 'blank-questions',
+          name: 'blankQuestions',
+          component: () => import('../views/teacher/BlankQuestionView.vue'),
+        },
+        {
+          path: 'create-blank-question',
+          name: 'createBlankQuestion',
+          component: () => import('../views/teacher/CreateQuestionView.vue'),
+          props: { defaultType: 'fill' }
+        },
+        {
+          path: 'edit-blank-question',
+          name: 'editBlankQuestion',
+          component: () => import('../views/teacher/EditQuestionView.vue'),
+          props: (route) => ({ 
+            id: route.query.id,
+            defaultType: 'fill'
+          })
         }
       ]
     }
