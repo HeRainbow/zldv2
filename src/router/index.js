@@ -111,6 +111,22 @@ const router = createRouter({
             id: route.query.id,
             defaultType: 'fill'
           })
+        },
+        // 判断题管理相关路由
+        {
+          path: 'judge-questions',
+          name: 'judgeQuestions',
+          component: () => import('../views/teacher/JudgeQuestionView.vue'),
+        },
+        {
+          path: 'create-judge-question',
+          name: 'createJudgeQuestion',
+          component: () => import('../views/teacher/CreateJudgeQuestionView.vue'),
+        },
+        {
+          path: 'edit-judge-question',
+          name: 'editJudgeQuestion',
+          component: () => import('../views/teacher/EditJudgeQuestionView.vue'),
         }
       ]
     }

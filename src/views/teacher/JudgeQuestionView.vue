@@ -12,8 +12,8 @@ const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(10)
 
-// 获取填空题列表
-const fetchBlankQuestions = async () => {
+// 获取判断题列表
+const fetchJudgeQuestions = async () => {
   loading.value = true
   
   try {
@@ -28,38 +28,33 @@ const fetchBlankQuestions = async () => {
       params.title = searchText.value
     }
     
-    // 调用填空题专用接口
+    // 调用判断题专用接口
     const res = await request({
-      url: '/blank/list/page',
+      url: '/judge/list/page',
       method: 'post',
       data: params
     })
     
-    console.log('填空题API返回的完整数据:', res)
+    console.log('判断题API返回的完整数据:', res)
     
     if (res.code === 0 && res.data) {
-      // 将后端返回的填空题数据格式化
+      // 将后端返回的判断题数据格式化
       questions.value = (res.data.records || []).map(item => {
-        // 处理标签数据
+        // 解析tags，确保它是一个数组
         let tags = []
-        
-        // 直接使用后端返回的数组，或者尝试解析字符串
-        if (Array.isArray(item.tags)) {
-          tags = item.tags
-        } else if (typeof item.tags === 'string') {
-          try {
-            const parsedTags = JSON.parse(item.tags || '[]')
-            tags = Array.isArray(parsedTags) ? parsedTags : []
-          } catch (e) {
-            console.error('解析标签失败:', e)
-          }
+        try {
+          tags = JSON.parse(item.tags || '[]')
+        } catch (e) {
+          console.error('解析标签失败:', e)
         }
         
         return {
           id: item.id,
           title: item.title,
           tags: tags,
+          // answer为0表示"错"，为1表示"对"
           answer: item.answer,
+          answerText: item.answer === 1 ? '正确' : '错误',
           submitNum: item.submitNum,
           acceptedNum: item.acceptedNum,
           thumbNum: item.thumbNum,
@@ -73,11 +68,11 @@ const fetchBlankQuestions = async () => {
       
       total.value = parseInt(res.data.total) || 0
     } else {
-      ElMessage.error(res.message || '获取填空题列表失败')
+      ElMessage.error(res.message || '获取判断题列表失败')
     }
   } catch (error) {
-    console.error('获取填空题列表出错', error)
-    ElMessage.error('获取填空题列表失败，请稍后重试')
+    console.error('获取判断题列表出错', error)
+    ElMessage.error('获取判断题列表失败，请稍后重试')
   } finally {
     loading.value = false
   }
@@ -86,20 +81,20 @@ const fetchBlankQuestions = async () => {
 // 监听搜索条件变化，重新加载数据
 watch(searchText, () => {
   currentPage.value = 1 // 重置到第一页
-  fetchBlankQuestions()
+  fetchJudgeQuestions()
 })
 
 // 页码变化
 const handlePageChange = (page) => {
   currentPage.value = page
-  fetchBlankQuestions()
+  fetchJudgeQuestions()
 }
 
 // 每页条数变化
 const handleSizeChange = (size) => {
   pageSize.value = size
   currentPage.value = 1
-  fetchBlankQuestions()
+  fetchJudgeQuestions()
 }
 
 // 删除问题
@@ -115,14 +110,14 @@ const handleDeleteQuestion = (question) => {
   ).then(async () => {
     try {
       const res = await request({
-        url: '/blank/delete',
+        url: '/judge/delete',
         method: 'post',
         data: { id: question.id }
       })
       
       if (res.code === 0) {
         ElMessage.success('删除成功')
-        fetchBlankQuestions() // 重新加载数据
+        fetchJudgeQuestions() // 重新加载数据
       } else {
         ElMessage.error(res.message || '删除失败')
       }
@@ -138,26 +133,26 @@ const handleDeleteQuestion = (question) => {
 // 编辑问题
 const handleEditQuestion = (question) => {
   router.push({
-    path: '/teacher/edit-blank-question',
+    path: '/teacher/edit-judge-question',
     query: { id: question.id }
   })
 }
 
 // 创建新题目
 const handleCreateQuestion = () => {
-  router.push('/teacher/create-blank-question')
+  router.push('/teacher/create-judge-question')
 }
 
 onMounted(() => {
-  fetchBlankQuestions()
+  fetchJudgeQuestions()
 })
 </script>
 
 <template>
-  <div class="blank-question-container">
+  <div class="judge-question-container">
     <div class="page-header">
-      <h2>填空题管理</h2>
-      <el-button type="primary" @click="handleCreateQuestion">创建填空题</el-button>
+      <h2>判断题管理</h2>
+      <el-button type="primary" @click="handleCreateQuestion">创建判断题</el-button>
     </div>
     
     <el-card class="question-list-card">
@@ -179,7 +174,7 @@ onMounted(() => {
         <div v-for="question in questions" :key="question.id" class="question-item">
           <div class="question-header">
             <div class="question-type">
-              <el-tag type="success">填空题</el-tag>
+              <el-tag type="warning">判断题</el-tag>
             </div>
             <div class="question-actions">
               <el-button type="primary" size="small" @click="handleEditQuestion(question)">编辑</el-button>
@@ -189,10 +184,12 @@ onMounted(() => {
           
           <div class="question-content">{{ question.title }}</div>
           
-          <!-- 填空题答案 -->
+          <!-- 判断题答案 -->
           <div class="question-reference">
             <div class="reference-label">正确答案：</div>
-            <div class="reference-content">{{ question.answer }}</div>
+            <div class="reference-content" :class="{'answer-true': question.answer === 1, 'answer-false': question.answer === 0}">
+              {{ question.answerText }}
+            </div>
           </div>
           
           <!-- 标签展示 -->
@@ -210,21 +207,10 @@ onMounted(() => {
           
           <div class="question-footer">
             <span class="create-time">创建时间：{{ question.createTime }}</span>
-            <!-- <span class="stats">
-              <el-tooltip content="提交次数" placement="top">
-                <span class="stat-item">提交: {{ question.submitNum }}</span>
-              </el-tooltip>
-              <el-tooltip content="通过次数" placement="top">
-                <span class="stat-item">通过: {{ question.acceptedNum }}</span>
-              </el-tooltip>
-              <el-tooltip content="点赞数" placement="top">
-                <span class="stat-item">点赞: {{ question.thumbNum }}</span>
-              </el-tooltip>
-            </span> -->
           </div>
         </div>
         
-        <el-empty v-if="questions.length === 0 && !loading" description="暂无填空题"></el-empty>
+        <el-empty v-if="questions.length === 0 && !loading" description="暂无判断题"></el-empty>
       </div>
       
       <!-- 分页控件 -->
@@ -244,7 +230,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.blank-question-container {
+.judge-question-container {
   padding: 20px;
 }
 
@@ -309,8 +295,16 @@ onMounted(() => {
 }
 
 .reference-content {
-  color: #67C23A;
   white-space: pre-wrap;
+  font-weight: bold;
+}
+
+.answer-true {
+  color: #67C23A;
+}
+
+.answer-false {
+  color: #F56C6C;
 }
 
 .question-tags {
@@ -333,20 +327,9 @@ onMounted(() => {
   font-size: 12px;
 }
 
-.stats {
-  display: flex;
-  gap: 10px;
-}
-
-.stat-item {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
 .pagination {
   margin-top: 20px;
   display: flex;
   justify-content: flex-end;
 }
-</style>
+</style> 
