@@ -127,6 +127,22 @@ const router = createRouter({
           path: 'edit-judge-question',
           name: 'editJudgeQuestion',
           component: () => import('../views/teacher/EditJudgeQuestionView.vue'),
+        },
+        // 编程题管理相关路由
+        {
+          path: 'program-questions',
+          name: 'programQuestions',
+          component: () => import('../views/teacher/ProgramQuestionView.vue'),
+        },
+        {
+          path: 'create-program-question',
+          name: 'createProgramQuestion',
+          component: () => import('../views/teacher/CreateProgramQuestionView.vue'),
+        },
+        {
+          path: 'edit-program-question',
+          name: 'editProgramQuestion',
+          component: () => import('../views/teacher/EditProgramQuestionView.vue'),
         }
       ]
     }

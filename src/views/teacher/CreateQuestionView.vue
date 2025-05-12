@@ -168,7 +168,7 @@ const handleSubmit = () => {
       let submitData = {
         title: questionForm.content,
         type: questionForm.type,
-        tags: Array.isArray(questionForm.tags) ? JSON.stringify(questionForm.tags) : '[]' // 确保tags是JSON字符串
+        tags: questionForm.tags // 直接使用tags数组，不再转为JSON字符串
       }
       
       // 根据不同题型添加特定字段

@@ -105,7 +105,8 @@ const handleLogout = async () => {
             <el-menu-item index="/teacher/question-bank">单选题管理</el-menu-item>
             <el-menu-item index="/teacher/blank-questions">填空题管理</el-menu-item>
             <el-menu-item index="/teacher/judge-questions">判断题管理</el-menu-item>
-            <el-menu-item index="/teacher/create-question">创建题目</el-menu-item>
+            <el-menu-item index="/teacher/program-questions">编程题管理</el-menu-item>
+            <!-- <el-menu-item index="/teacher/create-question">创建题目</el-menu-item> -->
           </el-sub-menu>
           
           <el-menu-item index="/teacher/students-management">

@@ -486,7 +486,7 @@ const handleSubmit = () => {
           id: Number(questionForm.id), // 确保ID是数字类型
           title: questionForm.content,
           type: questionForm.type,
-          tags: JSON.stringify(questionForm.tags || []) // 对于其他题型，tags需要是JSON字符串
+          tags: questionForm.tags || [] // 直接使用tags数组，不再转为JSON字符串
         }
         
         // 根据不同题型添加特定字段
