@@ -101,38 +101,45 @@ const handleStartReview = async (task) => {
     })
     
     if (response.code === 0 && response.data.length > 0) {
-      // 获取第一个互评任务数据
-      const peerReviewData = response.data[0]
-      
       // 设置当前评阅数据
       currentReview.id = task.id
       currentReview.examName = task.examName
-      currentReview.studentName = `用户ID: ${peerReviewData.submit.userId}` // 实际项目中可能需要获取真实姓名
       
-      // 设置问题和答案
-      currentReview.questions = [{
-        id: peerReviewData.question.id,
-        type: 'text',
-        content: peerReviewData.question.title,
-        points: peerReviewData.score || 10, // 使用题目总分，如果没有则默认10分
-        referenceAnswer: peerReviewData.question.answer || '暂无参考答案'
-      }]
+      // 假设第一个数据中的学生ID是相同的（通常同一个学生的多个题目）
+      currentReview.studentName = `用户ID: ${response.data[0].submit.userId}` 
       
-      currentReview.answers = [{
-        questionId: peerReviewData.question.id,
-        answer: peerReviewData.submit.answer || '暂无答案' // 如果答案为空，显示默认文本
-      }]
-      
-      // 初始化评分数据
+      // 清空之前的问题和答案
+      currentReview.questions = []
+      currentReview.answers = []
       currentReview.scoring = {}
-      currentReview.questions.forEach(q => {
+      
+      // 处理所有返回的问题数据
+      response.data.forEach(peerReviewData => {
+        // 添加问题
+        currentReview.questions.push({
+          id: peerReviewData.question.id,
+          type: 'text',
+          content: peerReviewData.question.title,
+          points: peerReviewData.score || 10, // 使用题目总分，如果没有则默认10分
+          referenceAnswer: peerReviewData.question.answer || '暂无参考答案'
+        })
+        
+        // 添加答案
+        currentReview.answers.push({
+          questionId: peerReviewData.question.id,
+          answer: peerReviewData.submit.answer || '暂无答案' // 如果答案为空，显示默认文本
+        })
+        
+        // 设置评分数据
         // 如果已有评分，则使用已有的
         const existingScore = peerReviewData.peerReview.score || 0
         const existingComment = peerReviewData.peerReview.comment || ''
         
-        currentReview.scoring[q.id] = {
+        currentReview.scoring[peerReviewData.question.id] = {
           score: existingScore,
-          comment: existingComment
+          comment: existingComment,
+          // 保存互评ID，用于后续提交评分
+          peerReviewId: peerReviewData.peerReview.id
         }
       })
       
@@ -152,19 +159,39 @@ const handleStartReview = async (task) => {
 const handleSubmitReview = async () => {
   loading.value = true
   try {
-    // 在实际项目中，这里应该调用提交评阅的API
-    // 示例：
-    /*
-    const response = await request.post('/peer/submit', {
-      peerReviewId: currentReview.peerReviewId, // 互评ID
-      score: calculateTotalScore(),
-      comment: Object.values(currentReview.scoring)[0].comment, // 获取第一个评语
-    })
+    // 收集所有评阅结果
+    const reviewResults = []
     
-    if (response.code === 0) {
-      ElMessage.success('评阅提交成功')
+    // 为每个题目创建一个评阅结果
+    for (const questionId in currentReview.scoring) {
+      const scoringData = currentReview.scoring[questionId]
+      reviewResults.push({
+        peerReviewId: scoringData.peerReviewId,
+        score: scoringData.score,
+        comment: scoringData.comment
+      })
+    }
+    
+    // 在实际项目中，这里应该调用提交评阅的API
+    // 示例：可以采用Promise.all一次性提交所有评阅，或者逐个提交
+    /*
+    const promises = reviewResults.map(result => 
+      request.post('/peer/submit', {
+        peerReviewId: result.peerReviewId,
+        score: result.score,
+        comment: result.comment
+      })
+    )
+    
+    const results = await Promise.all(promises)
+    
+    // 检查是否所有请求都成功
+    const allSuccess = results.every(res => res.code === 0)
+    
+    if (allSuccess) {
+      ElMessage.success('所有评阅提交成功')
     } else {
-      ElMessage.error(`评阅提交失败: ${response.message}`)
+      ElMessage.error('部分评阅提交失败，请重试')
       return // 如果提交失败，不关闭对话框
     }
     */
