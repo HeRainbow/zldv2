@@ -109,9 +109,15 @@ const handleLogout = async () => {
             <!-- <el-menu-item index="/teacher/create-question">创建题目</el-menu-item> -->
           </el-sub-menu>
           
-          <el-menu-item index="/teacher/students-management">
+          <!-- <el-menu-item index="/teacher/students-management">
             <el-icon><user /></el-icon>
             <span>学生管理</span>
+          </el-menu-item> -->
+          
+          <!-- 成绩查询菜单 -->
+          <el-menu-item index="/teacher/exam-list">
+            <el-icon><data-analysis /></el-icon>
+            <span>成绩查询</span>
           </el-menu-item>
         </el-menu>
       </el-aside>

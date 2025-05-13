@@ -93,6 +93,26 @@ const handlePageChange = (page) => {
 }
 
 /**
+ * 获取问题状态的CSS类名
+ * @param {number} index 问题索引
+ * @returns {string} CSS类名
+ */
+const getQuestionStatusClass = (index) => {
+  if (!currentReview.reviewItems[index]) return 'status-pending'
+  return currentReview.reviewItems[index].submitted ? 'status-completed' : 'status-pending'
+}
+
+/**
+ * 获取问题状态的文本描述
+ * @param {number} index 问题索引
+ * @returns {string} 状态文本
+ */
+const getQuestionStatusText = (index) => {
+  if (!currentReview.reviewItems[index]) return '待评阅'
+  return currentReview.reviewItems[index].submitted ? '已完成评阅' : '待评阅'
+}
+
+/**
  * 开始评阅任务
  * @param {Object} task 评阅任务对象
  */
@@ -136,7 +156,7 @@ const handleStartReview = async (task) => {
           currentReview.questions.push({
             id: questionId,
             uniqueId: uniqueId, // 添加唯一标识
-            type: 'text',
+            type: peerReviewData.question.type || 'text', // 获取题目类型
             content: peerReviewData.question.title || '未知题目',
             points: peerReviewData.score || 10, // 使用题目总分，如果没有则默认10分
             referenceAnswer: peerReviewData.question.answer || '暂无参考答案',
@@ -162,6 +182,7 @@ const handleStartReview = async (task) => {
           if (peerReviewData.peerReview) {
             const existingScore = peerReviewData.peerReview.score || 0
             const existingComment = peerReviewData.peerReview.comment || ''
+            const peerReviewStatus = peerReviewData.peerReview.status || 0
             
             // 添加到评阅项目数组
             currentReview.reviewItems.push({
@@ -172,12 +193,25 @@ const handleStartReview = async (task) => {
               comment: existingComment,
               // 保存整个peerReview对象，确保能够获取到正确的id
               peerReview: peerReviewData.peerReview,
-              // 添加提交状态标志
+              // 根据status判断是否已提交/完成
               submitting: false,
-              submitted: false
+              submitted: peerReviewStatus === 1, // status=1表示已完成评阅
+              status: peerReviewStatus
             })
           } else {
-            console.warn('未找到互评记录:', peerReviewData)
+            // 如果没有找到互评记录，创建一个空的默认记录
+            console.warn('未找到互评记录，创建默认记录:', peerReviewData)
+            currentReview.reviewItems.push({
+              questionId: questionId,
+              uniqueId: uniqueId,
+              index: index,
+              score: 0,
+              comment: '',
+              submitting: false,
+              submitted: false,
+              status: 0,
+              error: '未找到互评记录，请联系管理员' // 添加错误信息
+            })
           }
         } catch (err) {
           console.error('处理问题数据时出错:', err, peerReviewData)
@@ -192,7 +226,9 @@ const handleStartReview = async (task) => {
         ElMessage.warning('没有找到可评阅的题目')
       }
     } else {
-      ElMessage.warning('没有找到互评任务或数据为空')
+      const errorMsg = response.message || '没有找到互评任务或数据为空'
+      console.warn('获取互评数据失败:', errorMsg, response)
+      ElMessage.warning(errorMsg)
     }
   } catch (error) {
     console.error('获取互评任务详情失败:', error)
@@ -221,24 +257,6 @@ const getAnswer = (uniqueId) => {
   return answer ? answer.answer : ''
 }
 
-const calculateTotalScore = () => {
-  let total = 0
-  currentReview.reviewItems.forEach(item => {
-    if (item.submitted) {
-      total += item.score
-    }
-  })
-  return total
-}
-
-const getMaxScore = () => {
-  let total = 0
-  currentReview.questions.forEach(q => {
-    total += q.points
-  })
-  return total
-}
-
 /**
  * 提交单个题目的评阅
  * @param {string} uniqueId 题目唯一标识
@@ -252,16 +270,32 @@ const handleSubmitSingleReview = async (uniqueId) => {
     return
   }
   
+  // 如果已经提交过，显示提示并返回
+  if (reviewItem.submitted) {
+    ElMessage.warning('该题目已完成评阅，无需重复提交')
+    return
+  }
+  
+  // 检查是否有错误信息
+  if (reviewItem.error) {
+    ElMessage.error(reviewItem.error)
+    return
+  }
+  
   // 确保peerReview对象存在
   if (!reviewItem.peerReview || !reviewItem.peerReview.id) {
     ElMessage.error('缺少互评ID信息，无法提交')
     return
   }
   
-  // 设置提交状态
-  if (!reviewItem.submitting) {
-    reviewItem.submitting = true
+  // 检查分数是否有效
+  if (reviewItem.score === undefined || reviewItem.score < 0) {
+    ElMessage.warning('请输入有效的评分')
+    return
   }
+  
+  // 设置提交状态
+  reviewItem.submitting = true
   
   try {
     // 使用peerReview对象中的id
@@ -284,6 +318,8 @@ const handleSubmitSingleReview = async (uniqueId) => {
       ElMessage.success('评阅提交成功')
       // 标记为已提交
       reviewItem.submitted = true
+      // 更新状态为已完成评阅
+      reviewItem.status = 1
       
       // 检查是否所有题目都已提交
       const allSubmitted = currentReview.reviewItems.every(item => item.submitted)
@@ -325,6 +361,30 @@ const handleSubmitSingleReview = async (uniqueId) => {
     // 重置提交状态
     reviewItem.submitting = false
   }
+}
+
+/**
+ * 计算已提交的评阅总分
+ */
+const calculateTotalScore = () => {
+  let total = 0
+  currentReview.reviewItems.forEach(item => {
+    if (item.submitted) {
+      total += item.score
+    }
+  })
+  return total
+}
+
+/**
+ * 获取所有题目的总分
+ */
+const getMaxScore = () => {
+  let total = 0
+  currentReview.questions.forEach(q => {
+    total += q.points
+  })
+  return total
 }
 </script>
 
@@ -402,7 +462,12 @@ const handleSubmitSingleReview = async (uniqueId) => {
           <p>学生: {{ currentReview.studentName }}</p>
         </div>
         
-        <div v-for="question in currentReview.questions" :key="question.id" class="review-question-item">
+        <div v-for="question in currentReview.questions" :key="question.uniqueId" class="review-question-item">
+          <!-- 题目状态标识 -->
+          <div class="question-status-tag" :class="getQuestionStatusClass(question.index)">
+            {{ getQuestionStatusText(question.index) }}
+          </div>
+          
           <div class="question-header">
             <h4>问题: {{ question.content }}</h4>
             <p class="question-points">满分: {{ question.points }}分</p>
@@ -424,7 +489,9 @@ const handleSubmitSingleReview = async (uniqueId) => {
                   :max="question.points"
                   :step="0.5"
                   controls-position="right"
+                  :disabled="currentReview.reviewItems[question.index].submitted"
                 ></el-input-number>
+                <span class="score-hint">（满分{{ question.points }}分）</span>
               </el-form-item>
               <el-form-item label="评语">
                 <el-input
@@ -432,11 +499,13 @@ const handleSubmitSingleReview = async (uniqueId) => {
                   type="textarea"
                   :rows="2"
                   placeholder="请输入评语"
+                  :disabled="currentReview.reviewItems[question.index].submitted"
                 ></el-input>
               </el-form-item>
               <!-- 为每个题目添加单独的提交按钮 -->
               <el-form-item>
                 <el-button 
+                  v-if="!currentReview.reviewItems[question.index].submitted"
                   type="primary" 
                   @click="handleSubmitSingleReview(question.uniqueId)"
                   :loading="currentReview.reviewItems[question.index].submitting"
@@ -444,7 +513,10 @@ const handleSubmitSingleReview = async (uniqueId) => {
                   提交此题评阅
                 </el-button>
                 <el-tag v-if="currentReview.reviewItems[question.index].submitted" type="success" class="ml-2">
-                  已提交
+                  已完成评阅
+                </el-tag>
+                <el-tag v-if="currentReview.reviewItems[question.index].error" type="danger" class="ml-2">
+                  {{ currentReview.reviewItems[question.index].error }}
                 </el-tag>
               </el-form-item>
             </el-form>
@@ -496,6 +568,30 @@ const handleSubmitSingleReview = async (uniqueId) => {
   padding: 20px;
   border: 1px solid #ebeef5;
   border-radius: 4px;
+  position: relative;
+  transition: all 0.3s;
+}
+
+.review-question-item:hover {
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+}
+
+.question-status-tag {
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 4px 8px;
+  color: white;
+  font-size: 12px;
+  border-radius: 0 4px 0 4px;
+}
+
+.status-pending {
+  background-color: #409EFF;
+}
+
+.status-completed {
+  background-color: #67C23A;
 }
 
 .question-header {
@@ -540,5 +636,11 @@ const handleSubmitSingleReview = async (uniqueId) => {
 /* 新增样式 */
 .ml-2 {
   margin-left: 8px;
+}
+
+.score-hint {
+  color: #909399;
+  font-size: 12px;
+  margin-left: 10px;
 }
 </style> 

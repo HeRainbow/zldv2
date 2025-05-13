@@ -155,6 +155,12 @@ const router = createRouter({
           path: 'exam-detail/:id',
           name: 'examDetail',
           component: () => import('../views/teacher/ExamDetailView.vue')
+        },
+        // 学生成绩查询
+        {
+          path: 'exam-result/:id',
+          name: 'examResult',
+          component: () => import('../views/teacher/ExamResultView.vue')
         }
       ]
     }
