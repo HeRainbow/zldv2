@@ -2,7 +2,7 @@
 import axios from 'axios'
 
 const service = axios.create({
-  baseURL: 'http://192.168.125.2:8101/api',  // 写死的统一 API 地址
+  baseURL: 'http://192.168.8.100:8101/api',  // 写死的统一 API 地址
   timeout: 5000
 })
 

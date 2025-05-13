@@ -2,57 +2,150 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import request from '@/utils/request'
 
 const router = useRouter()
 const loading = ref(true)
 const searchText = ref('')
 const statusFilter = ref('all')
+const currentPage = ref(1)
+const pageSize = ref(10)
+const total = ref(0)
 
 const examList = ref([])
+const classMap = ref({}) // 用于存储班级ID和班级名称的映射
 
-onMounted(() => {
-  // 模拟获取考试列表
-  setTimeout(() => {
-    examList.value = [
-      {
-        id: 1,
-        title: '2023年第一学期数学期末考试',
-        classNames: ['高一(1)班', '高一(2)班'],
-        startTime: '2023-12-20 14:00',
-        endTime: '2023-12-20 16:00',
-        duration: 120,
-        totalStudents: 93,
-        submittedCount: 0,
-        status: 'upcoming',
-        createTime: '2023-11-15'
-      },
-      {
-        id: 2,
-        title: '2023年第一学期英语测验',
-        classNames: ['高一(1)班'],
-        startTime: '2023-12-15 09:00',
-        endTime: '2023-12-15 10:30',
-        duration: 90,
-        totalStudents: 45,
-        submittedCount: 0,
-        status: 'upcoming',
-        createTime: '2023-11-10'
-      },
-      {
-        id: 3,
-        title: '2023年第一学期物理期中考试',
-        classNames: ['高一(1)班', '高一(2)班'],
-        startTime: '2023-11-10 14:00',
-        endTime: '2023-11-10 16:00',
-        duration: 120,
-        totalStudents: 93,
-        submittedCount: 93,
-        status: 'completed',
-        createTime: '2023-10-25'
+// 获取班级信息
+const fetchClassList = async () => {
+  try {
+    const userInfo = getUserInfo()
+    
+    if (!userInfo || !userInfo.id) {
+      console.error('获取用户信息失败')
+      return
+    }
+    
+    const res = await request({
+      url: '/class/listClass',
+      method: 'post',
+      data: {
+        current: 1,
+        pageSize: 100, // 获取足够多的班级
+        sortField: "",
+        sortOrder: "",
+        teacherId: userInfo.id
       }
-    ]
+    })
+    
+    if (res.code === 0 && res.data) {
+      // 将班级列表转换为Map对象，方便通过ID查找班级名称
+      const classes = res.data.records || []
+      classes.forEach(cls => {
+        classMap.value[cls.id] = cls.name
+      })
+    }
+  } catch (error) {
+    console.error('获取班级列表失败', error)
+  }
+}
+
+// 获取用户信息
+const getUserInfo = () => {
+  const userInfoStr = localStorage.getItem('userInfo')
+  if (!userInfoStr) return null
+  try {
+    return JSON.parse(userInfoStr)
+  } catch (error) {
+    console.error('解析用户信息失败', error)
+    return null
+  }
+}
+
+// 获取考试列表
+const fetchExamList = async () => {
+  loading.value = true
+  
+  try {
+    const res = await request({
+      url: '/exam/get/teacher',
+      method: 'post',
+      data: {
+        current: currentPage.value,
+        pageSize: pageSize.value,
+        sortField: "",
+        sortOrder: ""
+      }
+    })
+    
+    if (res.code === 0 && res.data) {
+      // 将后端返回的考试数据处理成组件需要的格式
+      const examData = res.data.records || []
+      examList.value = examData.map(item => {
+        // 计算考试时长（分钟）
+        const startTime = new Date(item.startTime)
+        const endTime = new Date(item.endTime)
+        const durationMinutes = Math.round((endTime - startTime) / (1000 * 60))
+        
+        // 计算考试状态
+        const now = new Date()
+        let status = 'upcoming'
+        if (now > endTime) {
+          status = 'completed'
+        } else if (now >= startTime && now <= endTime) {
+          status = 'ongoing'
+        }
+        
+        // 格式化时间
+        const formatTime = (timeStr) => {
+          const date = new Date(timeStr)
+          return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+        }
+        
+        return {
+          id: item.id,
+          title: item.name,
+          classId: item.classId,
+          classNames: [classMap.value[item.classId] || `班级(${item.classId})`],
+          startTime: formatTime(item.startTime),
+          endTime: formatTime(item.endTime),
+          duration: durationMinutes,
+          totalStudents: 0, // 后端数据中没有，可以后续添加
+          submittedCount: 0, // 后端数据中没有，可以后续添加
+          status: status,
+          createTime: formatTime(item.createTime)
+        }
+      })
+      
+      total.value = parseInt(res.data.total) || 0
+    } else {
+      ElMessage.error(res.message || '获取考试列表失败')
+    }
+  } catch (error) {
+    console.error('获取考试列表失败', error)
+    ElMessage.error('获取考试列表失败，请稍后重试')
+  } finally {
     loading.value = false
-  }, 1000)
+  }
+}
+
+// 页码变化
+const handlePageChange = (page) => {
+  currentPage.value = page
+  fetchExamList()
+}
+
+// 每页条数变化
+const handleSizeChange = (size) => {
+  pageSize.value = size
+  currentPage.value = 1
+  fetchExamList()
+}
+
+onMounted(async () => {
+  // 先获取班级信息
+  await fetchClassList()
+  // 再获取考试列表
+  fetchExamList()
 })
 
 const statusFilters = [
@@ -99,12 +192,17 @@ const handleCreateExam = () => {
 
 const handleViewResult = (examId) => {
   // 实际应用中应该跳转到成绩查看页面
-  console.log('查看考试结果', examId)
+  router.push(`/teacher/exam-result/${examId}`)
+}
+
+const handleViewExamDetail = (examId) => {
+  // 跳转到考试详情页面
+  router.push(`/teacher/exam-detail/${examId}`)
 }
 
 const handleEditExam = (examId) => {
   // 实际应用中应该跳转到编辑页面
-  console.log('编辑考试', examId)
+  router.push(`/teacher/edit-exam/${examId}`)
 }
 
 const handleDeleteExam = (exam) => {
@@ -116,15 +214,28 @@ const handleDeleteExam = (exam) => {
       cancelButtonText: '取消',
       type: 'warning'
     }
-  ).then(() => {
-    // 模拟删除
-    const index = examList.value.findIndex(item => item.id === exam.id)
-    if (index !== -1) {
-      examList.value.splice(index, 1)
-      ElMessage({
-        type: 'success',
-        message: '删除成功'
+  ).then(async () => {
+    try {
+      // 调用删除接口
+      const res = await request({
+        url: '/exam/delete',
+        method: 'post',
+        data: { id: exam.id }
       })
+      
+      if (res.code === 0) {
+        ElMessage({
+          type: 'success',
+          message: '删除成功'
+        })
+        // 重新获取考试列表
+        fetchExamList()
+      } else {
+        ElMessage.error(res.message || '删除失败')
+      }
+    } catch (error) {
+      console.error('删除考试失败', error)
+      ElMessage.error('删除考试失败，请稍后重试')
     }
   }).catch(() => {
     // 取消删除
@@ -177,11 +288,7 @@ const handleDeleteExam = (exam) => {
             {{ scope.row.duration }}分钟
           </template>
         </el-table-column>
-        <el-table-column label="提交情况" width="110">
-          <template #default="scope">
-            {{ scope.row.submittedCount }}/{{ scope.row.totalStudents }}
-          </template>
-        </el-table-column>
+        <el-table-column prop="createTime" label="创建时间" width="150"></el-table-column>
         <el-table-column prop="status" label="状态" width="100">
           <template #default="scope">
             <el-tag :type="getStatusType(scope.row.status)">
@@ -189,8 +296,15 @@ const handleDeleteExam = (exam) => {
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="280" fixed="right">
           <template #default="scope">
+            <el-button 
+              type="info" 
+              size="small" 
+              @click="handleViewExamDetail(scope.row.id)"
+            >
+              查看详情
+            </el-button>
             <el-button 
               v-if="scope.row.status === 'completed'"
               type="primary" 
@@ -218,6 +332,19 @@ const handleDeleteExam = (exam) => {
           </template>
         </el-table-column>
       </el-table>
+      
+      <!-- 分页器 -->
+      <div class="pagination-container">
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="total"
+          @size-change="handleSizeChange"
+          @current-change="handlePageChange"
+        />
+      </div>
     </el-card>
   </div>
 </template>
@@ -251,5 +378,11 @@ const handleDeleteExam = (exam) => {
 
 .stats-section {
   color: #666;
+}
+
+.pagination-container {
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
 }
 </style> 

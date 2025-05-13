@@ -143,6 +143,18 @@ const router = createRouter({
           path: 'edit-program-question',
           name: 'editProgramQuestion',
           component: () => import('../views/teacher/EditProgramQuestionView.vue'),
+        },
+        // 编辑考试
+        {
+          path: 'edit-exam/:id',
+          name: 'editExam',
+          component: () => import('../views/teacher/EditExamView.vue')
+        },
+        // 查看考试详情
+        {
+          path: 'exam-detail/:id',
+          name: 'examDetail',
+          component: () => import('../views/teacher/ExamDetailView.vue')
         }
       ]
     }
