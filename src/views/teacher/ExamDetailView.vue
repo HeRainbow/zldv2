@@ -1,7 +1,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElDatePicker, ElDialog, ElButton, ElForm, ElFormItem } from 'element-plus'
 import request from '@/utils/request'
 
 const router = useRouter()
@@ -11,6 +11,22 @@ const loading = ref(false)
 const examData = ref({})
 const questionList = ref([])
 const classMap = ref({}) // 班级ID到班级名称的映射
+const isPeerMap = ref({}) // 存储题目的互评状态
+
+// 添加互评相关的状态
+const peerReviewDialogVisible = ref(false)
+const currentQuestionId = ref(null)
+const peerReviewForm = reactive({
+  endTime: '',
+  examId: null,
+  questionId: null
+})
+const submittingPeerReview = ref(false)
+
+// 查看互评记录相关状态
+const peerReviewRecordsVisible = ref(false)
+const peerReviewRecords = ref({})
+const loadingPeerReviewRecords = ref(false)
 
 // 题目类型统计
 const questionStats = reactive({
@@ -157,6 +173,12 @@ const fetchExamQuestions = async () => {
     
     if (res.code === 0 && res.data) {
       const questionData = res.data
+      
+      // 处理互评状态数据
+      if (questionData.isPeer) {
+        isPeerMap.value = questionData.isPeer
+        console.log('互评状态数据:', isPeerMap.value)
+      }
       
       // 处理单选题
       if (questionData.optionalList) {
@@ -391,6 +413,130 @@ const handleEditExam = () => {
   router.push(`/teacher/edit-exam/${examId}`)
 }
 
+// 打开设置互评对话框
+const openPeerReviewDialog = (questionId) => {
+  currentQuestionId.value = questionId
+  peerReviewForm.examId = parseInt(examId)
+  peerReviewForm.questionId = parseInt(questionId)
+  peerReviewForm.endTime = ''
+  peerReviewDialogVisible.value = true
+}
+
+// 提交互评设置
+const submitPeerReview = async () => {
+  // 验证时间是否选择
+  if (!peerReviewForm.endTime) {
+    ElMessage.warning('请选择截止时间')
+    return
+  }
+  
+  submittingPeerReview.value = true
+  
+  try {
+    // 调用创建互评的接口
+    const response = await request({
+      url: '/peer/create',
+      method: 'post',
+      data: peerReviewForm
+    })
+    
+    if (response.code === 0) {
+      ElMessage.success('互评设置成功')
+      peerReviewDialogVisible.value = false
+      
+      // 更新互评状态
+      const key = `${peerReviewForm.questionId}_type_${getQuestionTypeNumber(getQuestionTypeById(peerReviewForm.questionId))}`
+      isPeerMap.value[key] = 1
+    } else {
+      ElMessage.error(`设置互评失败: ${response.message || '未知错误'}`)
+    }
+  } catch (error) {
+    console.error('设置互评出错:', error)
+    ElMessage.error('设置互评时发生错误，请稍后重试')
+  } finally {
+    submittingPeerReview.value = false
+  }
+}
+
+// 获取题目类型对应的数字
+const getQuestionTypeNumber = (type) => {
+  const typeMap = {
+    'single': 1,
+    'fill': 2,
+    'judge': 3,
+    'program': 4
+  }
+  return typeMap[type] || 0
+}
+
+// 根据题目ID获取题目类型
+const getQuestionTypeById = (id) => {
+  const question = questionList.value.find(q => q.id == id)
+  return question ? question.type : null
+}
+
+// 获取互评状态
+const getPeerStatus = (questionId, questionType) => {
+  const typeNumber = getQuestionTypeNumber(questionType)
+  const key = `${questionId}_type_${typeNumber}`
+  return isPeerMap.value[key] || 0
+}
+
+// 查看互评记录
+const viewPeerReviewRecords = async (questionId) => {
+  currentQuestionId.value = questionId
+  peerReviewRecordsVisible.value = true
+  loadingPeerReviewRecords.value = true
+  
+  try {
+    // 调用获取互评记录的接口
+    const response = await request({
+      url: '/peer/get/admin',
+      method: 'post',
+      data: {
+        examId: parseInt(examId),
+        questionId: parseInt(questionId)
+      }
+    })
+    
+    if (response.code === 0) {
+      peerReviewRecords.value = response.data
+      console.log('互评记录:', peerReviewRecords.value)
+    } else {
+      ElMessage.error(`获取互评记录失败: ${response.message || '未知错误'}`)
+    }
+  } catch (error) {
+    console.error('获取互评记录出错:', error)
+    ElMessage.error('获取互评记录时发生错误，请稍后重试')
+  } finally {
+    loadingPeerReviewRecords.value = false
+  }
+}
+
+// 获取互评状态文本
+const getPeerStatusText = (status) => {
+  const statusMap = {
+    0: '未开始',
+    1: '进行中',
+    2: '已完成'
+  }
+  return statusMap[status] || '未知状态'
+}
+
+// 格式化互评时间
+const formatPeerReviewTime = (timeStr) => {
+  if (!timeStr) return '-'
+  const date = new Date(timeStr)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+// 添加提取UserAccount的方法
+const extractUserAccount = (studentStr) => {
+  // 从学生字符串中提取userAccount
+  const userAccountMatch = studentStr.match(/userAccount=([^,\)]+)/);
+  return userAccountMatch ? `学号: ${userAccountMatch[1]}` : '未知学号';
+}
+
 onMounted(async () => {
   // 获取班级列表
   await fetchClassList()
@@ -505,6 +651,27 @@ onMounted(async () => {
                 </el-tag>
                 <span class="question-points">{{ question.points }} 分</span>
               </div>
+              
+              <!-- 添加互评按钮, 仅对填空题和编程题显示 -->
+              <div class="question-actions" v-if="question.type === 'fill' || question.type === 'program'">
+                <!-- 根据互评状态显示不同按钮 -->
+                <el-button 
+                  v-if="getPeerStatus(question.id, question.type) === 0"
+                  type="primary" 
+                  size="small"
+                  @click="openPeerReviewDialog(question.id)"
+                >
+                  设置互评
+                </el-button>
+                <el-button 
+                  v-else
+                  type="success" 
+                  size="small"
+                  @click="viewPeerReviewRecords(question.id)"
+                >
+                  查看互评记录
+                </el-button>
+              </div>
             </div>
             <div class="question-content">{{ question.content }}</div>
             
@@ -551,6 +718,80 @@ onMounted(async () => {
         </div>
       </div>
     </el-card>
+    
+    <!-- 互评设置对话框 -->
+    <el-dialog
+      v-model="peerReviewDialogVisible"
+      title="设置互评"
+      width="400px"
+    >
+      <el-form :model="peerReviewForm" label-width="100px">
+        <el-form-item label="截止时间" required>
+          <el-date-picker
+            v-model="peerReviewForm.endTime"
+            type="datetime"
+            placeholder="选择互评截止时间"
+            format="YYYY-MM-DD HH:mm:ss"
+            value-format="YYYY-MM-DDTHH:mm:ss"
+            style="width: 100%"
+          ></el-date-picker>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="peerReviewDialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="submitPeerReview" :loading="submittingPeerReview">
+            确认
+          </el-button>
+        </span>
+      </template>
+    </el-dialog>
+    
+    <!-- 互评记录对话框 -->
+    <el-dialog
+      v-model="peerReviewRecordsVisible"
+      title="互评记录"
+      width="800px"
+    >
+      <div v-loading="loadingPeerReviewRecords">
+        <div v-if="Object.keys(peerReviewRecords).length === 0" class="empty-records">
+          <el-empty description="暂无互评记录"></el-empty>
+        </div>
+        <div v-else>
+          <div v-for="(records, student) in peerReviewRecords" :key="student" class="student-records">
+            <h3 class="student-name">
+              {{ extractUserAccount(student) }}
+            </h3>
+            <el-table :data="records" border stripe>
+              <el-table-column prop="id" label="ID" width="80"></el-table-column>
+              <el-table-column prop="reviewerId" label="评审者ID" width="100"></el-table-column>
+              <el-table-column prop="score" label="得分" width="80">
+                <template #default="scope">
+                  {{ scope.row.score || 0 }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="status" label="状态" width="100">
+                <template #default="scope">
+                  <el-tag :type="scope.row.status === 0 ? 'info' : (scope.row.status === 1 ? 'warning' : 'success')">
+                    {{ getPeerStatusText(scope.row.status) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="comment" label="评语">
+                <template #default="scope">
+                  {{ scope.row.comment || '暂无评语' }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="deadLine" label="截止时间" width="180">
+                <template #default="scope">
+                  {{ formatPeerReviewTime(scope.row.deadLine) }}
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -662,6 +903,11 @@ onMounted(async () => {
   gap: 10px;
 }
 
+.question-actions {
+  display: flex;
+  gap: 10px;
+}
+
 .question-index {
   font-weight: bold;
 }
@@ -724,5 +970,20 @@ onMounted(async () => {
 
 .question-judge-case {
   margin-top: 15px;
+}
+
+.student-records {
+  margin-bottom: 20px;
+}
+
+.student-name {
+  margin-bottom: 10px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid #ebeef5;
+  font-size: 16px;
+}
+
+.empty-records {
+  padding: 30px 0;
 }
 </style> 
