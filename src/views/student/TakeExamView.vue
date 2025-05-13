@@ -3,6 +3,7 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import request from '@/utils/request'
 import { ElMessage } from 'element-plus'
+import MonacoEditor from '@/components/MonacoEditor.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -520,6 +521,31 @@ const allQuestions = computed(() => {
     ...exam.judgementQuestions.map(q => ({ ...q, typeText: '判断题' }))
   ]
 })
+
+/**
+ * 从标签中获取编程语言
+ * @param {Array} tags 标签数组
+ * @returns {string} 语言类型
+ */
+const getLanguageFromTags = (tags) => {
+  const languageMap = {
+    'Java': 'java',
+    'C++': 'cpp',
+    'C': 'c',
+    'Python': 'python',
+    'JavaScript': 'javascript'
+  }
+  
+  if (!tags || tags.length === 0) return 'javascript'
+  
+  for (const tag of tags) {
+    if (languageMap[tag]) {
+      return languageMap[tag]
+    }
+  }
+  
+  return 'javascript' // 默认返回JavaScript
+}
 </script>
 
 <template>
@@ -632,12 +658,16 @@ const allQuestions = computed(() => {
               {{ question.content }}
             </div>
             
-            <el-input
+            <monaco-editor
               v-model="answers.program[question.id]"
-              type="textarea"
-              :rows="10"
-              placeholder="请在此编写您的代码..."
-            ></el-input>
+              :language="getLanguageFromTags(question.tags)"
+              :height="300"
+              :options="{
+                minimap: { enabled: true },
+                scrollBeyondLastLine: false,
+                automaticLayout: true
+              }"
+            />
           </div>
         </div>
       </div>
