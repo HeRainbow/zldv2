@@ -204,12 +204,18 @@ const processDetailedQuestions = (questionList, type) => {
   
   const result = []
   
+  // 记录调试信息
+  console.log(`处理${type}类型题目:`, questionList);
+  
   for (const [questionStr, points] of Object.entries(questionList)) {
     try {
       // 解析题目字符串
       let questionObj = extractQuestionInfo(questionStr, type)
       
-      if (!questionObj) continue
+      if (!questionObj) {
+        console.warn(`提取题目信息失败: ${questionStr}`);
+        continue;
+      }
       
       // 添加分数
       questionObj.points = points
@@ -241,7 +247,7 @@ const processDetailedQuestions = (questionList, type) => {
       
       result.push(questionObj)
     } catch (error) {
-      console.error('处理题目信息失败:', error)
+      console.error('处理题目信息失败:', error, questionStr)
     }
   }
   
@@ -251,20 +257,23 @@ const processDetailedQuestions = (questionList, type) => {
 // 从字符串中提取题目信息
 const extractQuestionInfo = (questionStr, type) => {
   try {
+    // 输出原始字符串，帮助调试
+    console.log(`解析${type}题目字符串:`, questionStr);
+
     // 识别题目类型
     let typePattern = null
     switch (type) {
       case 'single':
-        typePattern = /Optional\(([^)]+)\)/
+        typePattern = /(OptionalVO|Optional)\(([^)]+)\)/
         break
       case 'judge':
-        typePattern = /Judgment\(([^)]+)\)/
+        typePattern = /(JudgmentVO|Judgment)\(([^)]+)\)/
         break
       case 'fill':
-        typePattern = /Blank\(([^)]+)\)/
+        typePattern = /(BlanksVO|Blanks|Blank)\(([^)]+)\)/
         break
       case 'program':
-        typePattern = /Program\(([^)]+)\)/
+        typePattern = /(ProgramQuestionVO|Program)\(([^)]+)\)/
         break
     }
     
@@ -272,9 +281,12 @@ const extractQuestionInfo = (questionStr, type) => {
     
     // 提取主体内容
     const matches = questionStr.match(typePattern)
-    if (!matches || !matches[1]) return null
+    if (!matches || !matches[2]) {
+      console.warn(`正则表达式未匹配: ${questionStr}, 模式: ${typePattern}`);
+      return null;
+    }
     
-    const paramsStr = matches[1]
+    const paramsStr = matches[2]
     
     // 解析各个参数
     const result = {
@@ -308,7 +320,28 @@ const extractParam = (str, paramPrefix) => {
   const startIdx = str.indexOf(paramPrefix)
   if (startIdx === -1) return null
   
-  let endIdx = str.indexOf(',', startIdx)
+  // 找到参数的结束位置（下一个逗号或字符串结束）
+  // 但要处理逗号在引号内的情况
+  let endIdx = -1
+  let inQuotes = false
+  let i = startIdx + paramPrefix.length
+  
+  while (i < str.length) {
+    // 处理引号
+    if (str[i] === '"' && (i === 0 || str[i-1] !== '\\')) {
+      inQuotes = !inQuotes
+    }
+    
+    // 如果找到逗号且不在引号内，这是参数的结束
+    if (str[i] === ',' && !inQuotes) {
+      endIdx = i
+      break
+    }
+    
+    i++
+  }
+  
+  // 如果没有找到结束逗号，则使用字符串结束
   if (endIdx === -1) endIdx = str.length
   
   let value = str.substring(startIdx + paramPrefix.length, endIdx).trim()

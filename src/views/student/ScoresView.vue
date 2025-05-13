@@ -1,43 +1,71 @@
 <script setup>
 import { ref, onMounted } from 'vue'
+import request from '@/utils/request'
+import { ElMessage } from 'element-plus'
 
 const scores = ref([])
 const loading = ref(true)
 
-onMounted(() => {
-  // 模拟获取成绩数据
-  setTimeout(() => {
-    scores.value = [
-      {
-        id: 1,
-        examName: '2023年第一学期数学期末考试',
-        examDate: '2023-12-20',
-        score: 85,
-        totalScore: 100,
-        rank: 15,
-        totalStudents: 60
-      },
-      {
-        id: 2,
-        examName: '2023年第一学期英语测验',
-        examDate: '2023-12-15',
-        score: 92,
-        totalScore: 100,
-        rank: 8,
-        totalStudents: 60
-      },
-      {
-        id: 3,
-        examName: '2023年第一学期物理期中考试',
-        examDate: '2023-11-10',
-        score: 78,
-        totalScore: 100,
-        rank: 25,
-        totalStudents: 60
+// 从后端获取成绩数据
+const fetchScores = async () => {
+  loading.value = true
+  try {
+    // 调用成绩查询接口
+    const response = await request.post('/score/student/list', {
+      current: 1,
+      pageSize: 50 // 假设每页最多显示50条成绩
+    })
+    
+    if (response.code === 0) {
+      console.log('成绩数据:', response.data)
+      
+      // 处理后端返回的成绩数据
+      if (response.data && response.data.records) {
+        scores.value = response.data.records.map(item => {
+          return {
+            id: item.id,
+            examId: item.examId,
+            examName: item.examName || '未命名考试',
+            examDate: formatExamDate(item.createTime),
+            score: item.score || 0,
+            totalScore: item.totalScore || 100,
+            rank: item.rank || '-',
+            totalStudents: item.totalStudents || '-'
+          }
+        })
+      } else {
+        scores.value = []
       }
-    ]
+    } else {
+      ElMessage.error(`获取成绩失败: ${response.message}`)
+      scores.value = []
+    }
+  } catch (error) {
+    console.error('获取成绩出错:', error)
+    ElMessage.error('获取成绩数据时发生错误，请稍后重试')
+    scores.value = []
+  } finally {
     loading.value = false
-  }, 1000)
+  }
+}
+
+// 格式化考试日期
+const formatExamDate = (dateStr) => {
+  if (!dateStr) return '-'
+  try {
+    const date = new Date(dateStr)
+    return date.toLocaleDateString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).replace(/\//g, '-')
+  } catch (e) {
+    return dateStr
+  }
+}
+
+onMounted(() => {
+  fetchScores()
 })
 
 const getScoreLevel = (score) => {
@@ -45,6 +73,12 @@ const getScoreLevel = (score) => {
   if (score >= 75) return 'warning'
   if (score >= 60) return ''
   return 'danger'
+}
+
+// 查看考试详情
+const viewExamDetail = (examId) => {
+  // 跳转到考试详情页面
+  router.push(`/student/exam-detail/${examId}`)
 }
 </script>
 
@@ -55,6 +89,13 @@ const getScoreLevel = (score) => {
     </div>
     
     <el-card class="scores-card">
+      <div class="score-header">
+        <div></div>
+        <el-button type="primary" @click="fetchScores" :loading="loading">
+          刷新数据
+        </el-button>
+      </div>
+      
       <el-table :data="scores" v-loading="loading" style="width: 100%">
         <el-table-column prop="examName" label="考试名称" min-width="250"></el-table-column>
         <el-table-column prop="examDate" label="考试日期" width="150"></el-table-column>
@@ -67,23 +108,23 @@ const getScoreLevel = (score) => {
         </el-table-column>
         <el-table-column label="排名" width="150">
           <template #default="scope">
-            第 {{ scope.row.rank }} / {{ scope.row.totalStudents }}
+            <span v-if="scope.row.rank !== '-'">
+              第 {{ scope.row.rank }} / {{ scope.row.totalStudents }}
+            </span>
+            <span v-else>排名未计算</span>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="150" fixed="right">
           <template #default="scope">
-            <el-button type="primary" size="small" @click="$router.push(`/student/take-exam/${scope.row.id}`)">
+            <el-button type="primary" size="small" @click="viewExamDetail(scope.row.examId)">
               查看详情
             </el-button>
           </template>
         </el-table-column>
       </el-table>
-    </el-card>
-    
-    <el-card class="chart-card" v-if="!loading">
-      <div ref="chartRef" class="score-chart">
-        <h3>成绩趋势</h3>
-        <el-empty description="暂无成绩趋势数据"></el-empty>
+      
+      <div class="empty-data" v-if="scores.length === 0 && !loading">
+        <el-empty description="暂无成绩数据"></el-empty>
       </div>
     </el-card>
   </div>
@@ -103,15 +144,16 @@ const getScoreLevel = (score) => {
   margin-bottom: 20px;
 }
 
-.chart-card {
-  width: 100%;
+.score-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
 }
 
-.score-chart {
-  height: 300px;
+.empty-data {
+  margin: 20px 0;
   display: flex;
-  flex-direction: column;
-  align-items: center;
   justify-content: center;
 }
 </style> 

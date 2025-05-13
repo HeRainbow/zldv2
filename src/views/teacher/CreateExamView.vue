@@ -369,21 +369,76 @@ const handleSubmit = () => {
       selectedQuestions.value.forEach(question => {
         const questionId = question.id.toString()
         
+        // 打印每个题目的类型和ID，以便调试
+        console.log(`处理题目 ID=${questionId}, 类型=${question.type}`);
+        
         switch(question.type) {
           case 'single':
             optionalScore[questionId] = question.points
+            console.log(`添加选择题分数: ID=${questionId}, 分数=${question.points}`);
             break
           case 'fill':
             blankScore[questionId] = question.points
+            console.log(`添加填空题分数: ID=${questionId}, 分数=${question.points}`);
             break
           case 'judge':
             judgementScore[questionId] = question.points
+            console.log(`添加判断题分数: ID=${questionId}, 分数=${question.points}`);
             break
           case 'program':
             programScore[questionId] = question.points
+            console.log(`添加编程题分数: ID=${questionId}, 分数=${question.points}`);
+            break
+          default:
+            console.warn(`未知题目类型: ${question.type}, ID=${questionId}`);
             break
         }
       })
+      
+      // 打印各类题目数量和总题目数量
+      console.log(`选择题数量: ${Object.keys(optionalScore).length}`);
+      console.log(`填空题数量: ${Object.keys(blankScore).length}`);
+      console.log(`判断题数量: ${Object.keys(judgementScore).length}`);
+      console.log(`编程题数量: ${Object.keys(programScore).length}`);
+      console.log(`总题目数量: ${selectedQuestions.value.length}`);
+      console.log(`各类型题目总和: ${Object.keys(optionalScore).length + Object.keys(blankScore).length + Object.keys(judgementScore).length + Object.keys(programScore).length}`);
+      
+      // 确保所有类型的题目都被正确添加
+      if (Object.keys(optionalScore).length + Object.keys(blankScore).length + Object.keys(judgementScore).length + Object.keys(programScore).length !== selectedQuestions.value.length) {
+        console.warn('题目数量不匹配，可能有题目未被正确添加!');
+        
+        // 检查哪些题目未被添加
+        const allAddedIds = [
+          ...Object.keys(optionalScore),
+          ...Object.keys(blankScore),
+          ...Object.keys(judgementScore),
+          ...Object.keys(programScore)
+        ];
+        
+        const missingQuestions = selectedQuestions.value.filter(q => !allAddedIds.includes(q.id.toString()));
+        
+        if (missingQuestions.length > 0) {
+          console.warn('未被添加的题目:', missingQuestions);
+          
+          // 尝试手动添加这些题目
+          missingQuestions.forEach(question => {
+            const questionId = question.id.toString();
+            
+            // 根据题目类型添加到相应的分数对象中
+            if (question.type === 'single') {
+              optionalScore[questionId] = question.points;
+            } else if (question.type === 'fill') {
+              blankScore[questionId] = question.points;
+            } else if (question.type === 'judge') {
+              judgementScore[questionId] = question.points;
+            } else if (question.type === 'program') {
+              programScore[questionId] = question.points;
+            }
+            
+            console.log(`手动添加题目: ID=${questionId}, 类型=${question.type}, 分数=${question.points}`);
+          });
+        }
+      }
       
       // 计算考试结束时间
       const startTime = new Date(examForm.startTime)
@@ -448,6 +503,29 @@ const handleSubmit = () => {
           programScore: Object.keys(programScore).length ? programScore : {},        // 编程题分数
           startTime: startTimeFormatted                     // 开始时间
         }
+        
+        // 打印编程题的详细信息，以便调试
+        console.log('提交编程题信息:', programScore);
+        console.log('选择的题目总数:', selectedQuestions.value.length);
+        console.log('其中编程题数量:', selectedQuestions.value.filter(q => q.type === 'program').length);
+        
+        // 检查编程题是否全部包含在programScore中
+        const programQuestions = selectedQuestions.value.filter(q => q.type === 'program');
+        const missingProgramQuestions = programQuestions.filter(q => !programScore[q.id.toString()]);
+        
+        if (missingProgramQuestions.length > 0) {
+          console.warn('有编程题未包含在提交数据中:', missingProgramQuestions);
+          
+          // 确保所有编程题都被包含
+          programQuestions.forEach(question => {
+            programScore[question.id.toString()] = question.points;
+          });
+          
+          console.log('更新后的编程题分数:', programScore);
+        }
+        
+        // 更新examData中的programScore
+        examData.programScore = Object.keys(programScore).length ? programScore : {};
         
         return request({
           url: '/exam/create',

@@ -48,7 +48,8 @@ const handleOptionalAnswer = async (questionId, answer) => {
     // 准备提交数据
     const submitData = {
       answer: answer,
-      questionId: parseInt(questionId)
+      questionId: parseInt(questionId),
+      examId: parseInt(exam.id)
     }
     
     // 显示提交状态
@@ -92,7 +93,8 @@ const handleJudgementAnswer = async (questionId, answer) => {
     // 准备提交数据
     const submitData = {
       answer: answerValue,
-      questionId: parseInt(questionId)
+      questionId: parseInt(questionId),
+      examId: parseInt(exam.id)
     }
     
     // 显示提交状态
@@ -175,6 +177,11 @@ onMounted(() => {
           const titleMatch = questionStr.match(/title=([^,]+)/)
           const contentMatch = questionStr.match(/content=([^,]+)/)
           
+          // 提取默认程序代码
+          const defaultProgramMatch = questionStr.match(/defaultProgram=([^,\)]+)/)
+          const defaultProgram = defaultProgramMatch ? defaultProgramMatch[1] : ''
+          console.log('默认程序代码:', defaultProgram)
+          
           // 特殊处理tags字段，它是JSON格式
           let tags = []
           const tagsPattern = /tags=(\[[^\]]*\])/
@@ -189,10 +196,10 @@ onMounted(() => {
             }
           }
           
-          // 初始化编程题答案
+          // 初始化编程题答案，使用defaultProgram作为初始值
           const id = idMatch ? idMatch[1] : null
           if (id) {
-            answers.value.program[id] = ''
+            answers.value.program[id] = defaultProgram
           }
           
           return {
@@ -200,6 +207,7 @@ onMounted(() => {
             type: 'program',
             title: titleMatch ? titleMatch[1] : '未知题目',
             content: contentMatch && contentMatch[1] !== 'null' ? contentMatch[1] : '',
+            defaultProgram: defaultProgram,
             tags: tags,
             points: points
           }
@@ -420,12 +428,14 @@ const handleSubmitExam = async () => {
     // 分别提交填空题和编程题
     const blankSubmissions = Object.entries(answers.value.blank).map(([questionId, answer]) => ({
       questionId: parseInt(questionId),
-      answer: answer
+      answer: answer,
+      examId: parseInt(exam.id)
     }));
     
     const programSubmissions = Object.entries(answers.value.program).map(([questionId, code]) => ({
       questionId: parseInt(questionId),
-      code: code
+      code: code,
+      examId: parseInt(exam.id)
     }));
     
     // 提交填空题
