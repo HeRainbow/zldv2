@@ -1,7 +1,7 @@
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, nextTick, h } from 'vue'
 import request from '@/utils/request'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const peerReviewTasks = ref([])
 const completedTasks = ref([])
@@ -20,9 +20,9 @@ const currentReview = reactive({
   id: null,
   examName: '',
   studentName: '',
+  reviewItems: [],
   questions: [],
-  answers: [],
-  scoring: {}
+  answers: []
 })
 
 // 从后端获取考试列表数据
@@ -92,6 +92,10 @@ const handlePageChange = (page) => {
   fetchExamList()
 }
 
+/**
+ * 开始评阅任务
+ * @param {Object} task 评阅任务对象
+ */
 const handleStartReview = async (task) => {
   loading.value = true
   try {
@@ -100,51 +104,93 @@ const handleStartReview = async (task) => {
       id: task.id
     })
     
-    if (response.code === 0 && response.data.length > 0) {
+    if (response.code === 0 && response.data && response.data.length > 0) {
+      console.log('互评任务数据:', response.data) // 用于调试
+      
       // 设置当前评阅数据
       currentReview.id = task.id
       currentReview.examName = task.examName
       
       // 假设第一个数据中的学生ID是相同的（通常同一个学生的多个题目）
-      currentReview.studentName = `用户ID: ${response.data[0].submit.userId}` 
+      const studentId = response.data[0].submit ? response.data[0].submit.userId : '未知'
+      currentReview.studentName = `用户ID: ${studentId}` 
       
-      // 清空之前的问题和答案
+      // 清空之前的数据
       currentReview.questions = []
       currentReview.answers = []
-      currentReview.scoring = {}
+      currentReview.reviewItems = []
       
       // 处理所有返回的问题数据
-      response.data.forEach(peerReviewData => {
-        // 添加问题
-        currentReview.questions.push({
-          id: peerReviewData.question.id,
-          type: 'text',
-          content: peerReviewData.question.title,
-          points: peerReviewData.score || 10, // 使用题目总分，如果没有则默认10分
-          referenceAnswer: peerReviewData.question.answer || '暂无参考答案'
-        })
-        
-        // 添加答案
-        currentReview.answers.push({
-          questionId: peerReviewData.question.id,
-          answer: peerReviewData.submit.answer || '暂无答案' // 如果答案为空，显示默认文本
-        })
-        
-        // 设置评分数据
-        // 如果已有评分，则使用已有的
-        const existingScore = peerReviewData.peerReview.score || 0
-        const existingComment = peerReviewData.peerReview.comment || ''
-        
-        currentReview.scoring[peerReviewData.question.id] = {
-          score: existingScore,
-          comment: existingComment,
-          // 保存互评ID，用于后续提交评分
-          peerReviewId: peerReviewData.peerReview.id
+      response.data.forEach((peerReviewData, index) => {
+        try {
+          // 确保问题数据存在
+          if (!peerReviewData.question) {
+            console.warn('问题数据不完整:', peerReviewData)
+            return
+          }
+          
+          const questionId = peerReviewData.question.id
+          const uniqueId = `${questionId}_${index}` // 创建唯一标识
+          
+          // 添加问题
+          currentReview.questions.push({
+            id: questionId,
+            uniqueId: uniqueId, // 添加唯一标识
+            type: 'text',
+            content: peerReviewData.question.title || '未知题目',
+            points: peerReviewData.score || 10, // 使用题目总分，如果没有则默认10分
+            referenceAnswer: peerReviewData.question.answer || '暂无参考答案',
+            index: index // 添加索引，用于关联reviewItem
+          })
+          
+          // 添加答案（确保submit存在）
+          if (peerReviewData.submit) {
+            currentReview.answers.push({
+              questionId: questionId,
+              uniqueId: uniqueId, // 添加唯一标识
+              answer: peerReviewData.submit.answer || '暂无答案'
+            })
+          } else {
+            currentReview.answers.push({
+              questionId: questionId,
+              uniqueId: uniqueId, // 添加唯一标识
+              answer: '未找到提交记录'
+            })
+          }
+          
+          // 设置评分数据（确保peerReview存在）
+          if (peerReviewData.peerReview) {
+            const existingScore = peerReviewData.peerReview.score || 0
+            const existingComment = peerReviewData.peerReview.comment || ''
+            
+            // 添加到评阅项目数组
+            currentReview.reviewItems.push({
+              questionId: questionId,
+              uniqueId: uniqueId, // 添加唯一标识
+              index: index,
+              score: existingScore,
+              comment: existingComment,
+              // 保存整个peerReview对象，确保能够获取到正确的id
+              peerReview: peerReviewData.peerReview,
+              // 添加提交状态标志
+              submitting: false,
+              submitted: false
+            })
+          } else {
+            console.warn('未找到互评记录:', peerReviewData)
+          }
+        } catch (err) {
+          console.error('处理问题数据时出错:', err, peerReviewData)
         }
       })
       
-      // 显示评阅对话框
-      reviewDialogVisible.value = true
+      // 检查是否成功处理了问题
+      if (currentReview.questions.length > 0) {
+        // 显示评阅对话框
+        reviewDialogVisible.value = true
+      } else {
+        ElMessage.warning('没有找到可评阅的题目')
+      }
     } else {
       ElMessage.warning('没有找到互评任务或数据为空')
     }
@@ -156,94 +202,31 @@ const handleStartReview = async (task) => {
   }
 }
 
-const handleSubmitReview = async () => {
-  loading.value = true
-  try {
-    // 收集所有评阅结果
-    const reviewResults = []
-    
-    // 为每个题目创建一个评阅结果
-    for (const questionId in currentReview.scoring) {
-      const scoringData = currentReview.scoring[questionId]
-      reviewResults.push({
-        peerReviewId: scoringData.peerReviewId,
-        score: scoringData.score,
-        comment: scoringData.comment
-      })
-    }
-    
-    // 在实际项目中，这里应该调用提交评阅的API
-    // 示例：可以采用Promise.all一次性提交所有评阅，或者逐个提交
-    /*
-    const promises = reviewResults.map(result => 
-      request.post('/peer/submit', {
-        peerReviewId: result.peerReviewId,
-        score: result.score,
-        comment: result.comment
-      })
-    )
-    
-    const results = await Promise.all(promises)
-    
-    // 检查是否所有请求都成功
-    const allSuccess = results.every(res => res.code === 0)
-    
-    if (allSuccess) {
-      ElMessage.success('所有评阅提交成功')
-    } else {
-      ElMessage.error('部分评阅提交失败，请重试')
-      return // 如果提交失败，不关闭对话框
-    }
-    */
-    
-    // 暂时使用模拟数据
-    // 模拟提交成功
-    ElMessage.success('评阅提交成功')
-    
-    // 关闭对话框
-    reviewDialogVisible.value = false
-    
-    // 更新任务列表
-    const taskIndex = peerReviewTasks.value.findIndex(task => task.id === currentReview.id)
-    if (taskIndex !== -1) {
-      const task = peerReviewTasks.value[taskIndex]
-      
-      // 计算总分
-      let totalScore = calculateTotalScore()
-      
-      // 将任务从待评价移动到已完成
-      completedTasks.value.unshift({
-        id: task.id,
-        examName: task.examName,
-        studentName: currentReview.studentName,
-        date: task.date,
-        completedDate: new Date().toISOString().split('T')[0],
-        score: totalScore
-      })
-      
-      // 从待评价列表中移除
-      peerReviewTasks.value.splice(taskIndex, 1)
-      
-      // 刷新列表
-      fetchExamList()
-    }
-  } catch (error) {
-    console.error('提交评阅失败:', error)
-    ElMessage.error('提交评阅失败，请稍后重试')
-  } finally {
-    loading.value = false
-  }
+/**
+ * 根据唯一标识获取评阅项目
+ * @param {string} uniqueId 题目唯一标识
+ * @returns {Object|null} 评阅项目
+ */
+const getReviewItem = (uniqueId) => {
+  return currentReview.reviewItems.find(item => item.uniqueId === uniqueId) || null
 }
 
-const getAnswer = (questionId) => {
-  const answer = currentReview.answers.find(a => a.questionId === questionId)
+/**
+ * 根据唯一标识获取答案
+ * @param {string} uniqueId 题目唯一标识
+ * @returns {string} 答案内容
+ */
+const getAnswer = (uniqueId) => {
+  const answer = currentReview.answers.find(a => a.uniqueId === uniqueId)
   return answer ? answer.answer : ''
 }
 
 const calculateTotalScore = () => {
   let total = 0
-  Object.values(currentReview.scoring).forEach(score => {
-    total += score.score
+  currentReview.reviewItems.forEach(item => {
+    if (item.submitted) {
+      total += item.score
+    }
   })
   return total
 }
@@ -254,6 +237,94 @@ const getMaxScore = () => {
     total += q.points
   })
   return total
+}
+
+/**
+ * 提交单个题目的评阅
+ * @param {string} uniqueId 题目唯一标识
+ */
+const handleSubmitSingleReview = async (uniqueId) => {
+  // 获取当前题目的评分数据
+  const reviewItem = getReviewItem(uniqueId)
+  
+  if (!reviewItem) {
+    ElMessage.error('未找到评分数据')
+    return
+  }
+  
+  // 确保peerReview对象存在
+  if (!reviewItem.peerReview || !reviewItem.peerReview.id) {
+    ElMessage.error('缺少互评ID信息，无法提交')
+    return
+  }
+  
+  // 设置提交状态
+  if (!reviewItem.submitting) {
+    reviewItem.submitting = true
+  }
+  
+  try {
+    // 使用peerReview对象中的id
+    const peerReviewId = reviewItem.peerReview.id
+    
+    console.log('提交评阅数据:', {
+      id: peerReviewId,
+      score: reviewItem.score,
+      comment: reviewItem.comment || ''
+    })
+    
+    // 调用接口提交评阅
+    const response = await request.post('/peer/do', {
+      id: peerReviewId,
+      score: reviewItem.score,
+      comment: reviewItem.comment || '' // 确保comment不为undefined或null
+    })
+    
+    if (response.code === 0) {
+      ElMessage.success('评阅提交成功')
+      // 标记为已提交
+      reviewItem.submitted = true
+      
+      // 检查是否所有题目都已提交
+      const allSubmitted = currentReview.reviewItems.every(item => item.submitted)
+      if (allSubmitted) {
+        ElMessage.success('所有题目已评阅完成')
+        
+        // 如果全部提交了，可以更新任务列表
+        const taskIndex = peerReviewTasks.value.findIndex(task => task.id === currentReview.id)
+        if (taskIndex !== -1) {
+          const task = peerReviewTasks.value[taskIndex]
+          
+          // 计算总分
+          let totalScore = calculateTotalScore()
+          
+          // 将任务从待评价移动到已完成
+          completedTasks.value.unshift({
+            id: task.id,
+            examName: task.examName,
+            studentName: currentReview.studentName,
+            date: task.date,
+            completedDate: new Date().toISOString().split('T')[0],
+            score: totalScore
+          })
+          
+          // 从待评价列表中移除
+          peerReviewTasks.value.splice(taskIndex, 1)
+          
+          // 刷新列表
+          fetchExamList()
+        }
+      }
+    } else {
+      ElMessage.error(`评阅提交失败: ${response.message || '未知错误'}`)
+    }
+  } catch (error) {
+    console.error('提交评阅失败:', error)
+    ElMessage.error('提交评阅失败，请稍后重试')
+  } finally {
+    // 重置提交状态
+    reviewItem.submitting = false
+  }
 }
 </script>
 
@@ -294,7 +365,7 @@ const getMaxScore = () => {
         </div>
       </el-tab-pane>
       
-      <el-tab-pane label="已完成评阅" name="completed">
+      <!-- <el-tab-pane label="已完成评阅" name="completed">
         <el-table :data="completedTasks" v-loading="loading" style="width: 100%">
           <el-table-column prop="examName" label="考试名称" min-width="250"></el-table-column>
           <el-table-column prop="studentName" label="学生姓名" width="150"></el-table-column>
@@ -315,7 +386,7 @@ const getMaxScore = () => {
         </el-table>
         
         <el-empty v-if="completedTasks.length === 0 && !loading" description="暂无已完成评阅"></el-empty>
-      </el-tab-pane>
+      </el-tab-pane> -->
     </el-tabs>
     
     <!-- 评阅对话框 -->
@@ -341,14 +412,14 @@ const getMaxScore = () => {
           <div class="reference-answer">{{ question.referenceAnswer }}</div>
           
           <el-divider content-position="left">学生答案</el-divider>
-          <div class="student-answer">{{ getAnswer(question.id) }}</div>
+          <div class="student-answer">{{ getAnswer(question.uniqueId) }}</div>
           
           <el-divider content-position="left">评分</el-divider>
           <div class="scoring-section">
             <el-form label-position="top">
               <el-form-item label="分数">
                 <el-input-number
-                  v-model="currentReview.scoring[question.id].score"
+                  v-model="currentReview.reviewItems[question.index].score"
                   :min="0"
                   :max="question.points"
                   :step="0.5"
@@ -357,11 +428,24 @@ const getMaxScore = () => {
               </el-form-item>
               <el-form-item label="评语">
                 <el-input
-                  v-model="currentReview.scoring[question.id].comment"
+                  v-model="currentReview.reviewItems[question.index].comment"
                   type="textarea"
                   :rows="2"
                   placeholder="请输入评语"
                 ></el-input>
+              </el-form-item>
+              <!-- 为每个题目添加单独的提交按钮 -->
+              <el-form-item>
+                <el-button 
+                  type="primary" 
+                  @click="handleSubmitSingleReview(question.uniqueId)"
+                  :loading="currentReview.reviewItems[question.index].submitting"
+                >
+                  提交此题评阅
+                </el-button>
+                <el-tag v-if="currentReview.reviewItems[question.index].submitted" type="success" class="ml-2">
+                  已提交
+                </el-tag>
               </el-form-item>
             </el-form>
           </div>
@@ -374,8 +458,7 @@ const getMaxScore = () => {
       
       <template #footer>
         <span class="dialog-footer">
-          <el-button @click="reviewDialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="handleSubmitReview">提交评阅</el-button>
+          <el-button @click="reviewDialogVisible = false">关闭</el-button>
         </span>
       </template>
     </el-dialog>
@@ -452,5 +535,10 @@ const getMaxScore = () => {
 .pagination-container {
   margin-top: 20px;
   text-align: right;
+}
+
+/* 新增样式 */
+.ml-2 {
+  margin-left: 8px;
 }
 </style> 
