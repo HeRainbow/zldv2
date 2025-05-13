@@ -359,18 +359,161 @@ const handleSubmit = () => {
     if (valid) {
       loading.value = true
       
-      // 模拟提交
-      setTimeout(() => {
+      // 构建要提交的考试数据
+      const optionalScore = {}  // 单选题分数
+      const blankScore = {}     // 填空题分数
+      const judgementScore = {} // 判断题分数
+      const programScore = {}   // 编程题分数
+      
+      // 为各类题目设置分数
+      selectedQuestions.value.forEach(question => {
+        const questionId = question.id.toString()
+        
+        switch(question.type) {
+          case 'single':
+            optionalScore[questionId] = question.points
+            break
+          case 'fill':
+            blankScore[questionId] = question.points
+            break
+          case 'judge':
+            judgementScore[questionId] = question.points
+            break
+          case 'program':
+            programScore[questionId] = question.points
+            break
+        }
+      })
+      
+      // 计算考试结束时间
+      const startTime = new Date(examForm.startTime)
+      const endTime = new Date(startTime.getTime() + examForm.duration * 60 * 1000)
+
+      // 格式化为Java LocalDateTime格式 (yyyy-MM-ddTHH:mm:ss)
+      const formatToLocalDateTime = (date) => {
+        const year = date.getFullYear()
+        const month = String(date.getMonth() + 1).padStart(2, '0')
+        const day = String(date.getDate()).padStart(2, '0')
+        const hours = String(date.getHours()).padStart(2, '0')
+        const minutes = String(date.getMinutes()).padStart(2, '0')
+        const seconds = String(date.getSeconds()).padStart(2, '0')
+        
+        return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`
+      }
+
+      const startTimeFormatted = formatToLocalDateTime(startTime)
+      const endTimeFormatted = formatToLocalDateTime(endTime)
+      
+      // 处理创建成功的函数
+      const handleCreateSuccess = (res) => {
         loading.value = false
         
+        if (res.code === 0) {
+          ElMessage({
+            type: 'success',
+            message: '考试创建成功'
+          })
+          
+          // 跳转到考试列表页
+          router.push('/teacher/exam-list')
+        } else {
+          ElMessage({
+            type: 'error',
+            message: res.message || '创建考试失败'
+          })
+        }
+      }
+      
+      // 处理创建失败的函数
+      const handleCreateError = (error) => {
+        loading.value = false
         ElMessage({
-          type: 'success',
-          message: '考试创建成功'
+          type: 'error',
+          message: '创建考试失败: ' + (error.message || '未知错误')
+        })
+        console.error('创建考试失败:', error)
+      }
+      
+      // 提交考试数据
+      const createExam = async (classId) => {
+        // 构建提交数据
+        const examData = {
+          allScore: calculateTotalPoints.value,             // 总分值
+          blankScore: Object.keys(blankScore).length ? blankScore : {},  // 填空题分数
+          classId: classId,                                 // 班级ID
+          endTime: endTimeFormatted,                              // 结束时间
+          examName: examForm.title,                         // 考试名称
+          judgementScore: Object.keys(judgementScore).length ? judgementScore : {},  // 判断题分数
+          optionalScore: Object.keys(optionalScore).length ? optionalScore : {},     // 单选题分数
+          programScore: Object.keys(programScore).length ? programScore : {},        // 编程题分数
+          startTime: startTimeFormatted                     // 开始时间
+        }
+        
+        return request({
+          url: '/exam/create',
+          method: 'post',
+          data: examData
+        })
+      }
+
+      // 处理多班级的考试创建
+      if (examForm.classes.length === 1) {
+        // 单班级直接创建
+        createExam(examForm.classes[0])
+          .then(handleCreateSuccess)
+          .catch(handleCreateError)
+      } else {
+        // 多班级循环创建
+        let successCount = 0
+        let failCount = 0
+        
+        const promises = examForm.classes.map(classId => {
+          return createExam(classId)
+            .then(res => {
+              if (res.code === 0) {
+                successCount++
+              } else {
+                failCount++
+                console.error(`班级 ${classId} 创建失败:`, res.message)
+              }
+              return res
+            })
+            .catch(error => {
+              failCount++
+              console.error(`班级 ${classId} 创建失败:`, error)
+              return error
+            })
         })
         
-        // 跳转到考试列表页
-        router.push('/teacher/exam-list')
-      }, 1000)
+        // 等待所有请求完成
+        Promise.all(promises)
+          .then(() => {
+            loading.value = false
+            
+            if (successCount > 0) {
+              ElMessage({
+                type: 'success',
+                message: `已成功创建 ${successCount} 个班级的考试${failCount > 0 ? `，${failCount} 个班级创建失败` : ''}`
+              })
+              
+              // 跳转到考试列表页
+              router.push('/teacher/exam-list')
+            } else {
+              ElMessage({
+                type: 'error',
+                message: '创建考试失败'
+              })
+            }
+          })
+          .catch(error => {
+            loading.value = false
+            ElMessage({
+              type: 'error',
+              message: '创建考试失败: ' + (error.message || '未知错误')
+            })
+            console.error('创建考试失败:', error)
+          })
+      }
     }
   })
 }
@@ -438,8 +581,8 @@ watch(searchText, () => {
             v-model="examForm.startTime"
             type="datetime"
             placeholder="选择考试开始时间"
-            format="YYYY-MM-DD HH:mm"
-            value-format="YYYY-MM-DD HH:mm"
+            format="YYYY-MM-DD HH:mm:ss"
+            value-format="YYYY-MM-DDTHH:mm:ss"
             style="width: 100%"
           ></el-date-picker>
         </el-form-item>
